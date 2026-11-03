@@ -9,7 +9,7 @@ DB_PATH=os.getenv("DB_PATH","giveaway.db")
 ADMIN_USER=os.getenv("ADMIN_USER","Admin")
 ADMIN_PASSWORD=os.getenv("ADMIN_PASSWORD","@Krish9A")
 ADMIN_UPI=os.getenv("ADMIN_UPI_ID","")
-INSTAGRAM_USERNAME=os.getenv("INSTAGRAM_USERNAME","your_instagram_page")
+INSTAGRAM_USERNAME=os.getenv("INSTAGRAM_USERNAME","oyye_rider")
 TARGET_MIN=float(os.getenv("TARGET_MIN","5.0"))
 TARGET_MAX=float(os.getenv("TARGET_MAX","15.0"))
 PRIZE="₹100"
@@ -81,22 +81,11 @@ div.stButton>button{border-radius:12px;font-weight:700;min-height:45px}
 </style>
 """,unsafe_allow_html=True)
 
-# Hidden admin entrance: hold for 6 seconds
-components.html("""
-<div style="text-align:center;margin:12px 0">
-<button id="secretAdmin" style="background:#171717;color:#aaa;border:1px solid #444;border-radius:9px;padding:9px 16px;font-size:12px;user-select:none;touch-action:none">
-Hold here for 6 seconds • Admin
-</button>
-<div id="holdMsg" style="font-size:11px;color:#777;margin-top:5px"></div>
-</div>
-<script>
-const b=document.getElementById('secretAdmin'), msg=document.getElementById('holdMsg');
-let timer=null, start=0;
-function begin(e){e.preventDefault();start=Date.now();msg.textContent='Keep holding…';timer=setTimeout(()=>{msg.textContent='Opening admin…';window.parent.location.href=window.parent.location.pathname+'?admin=1';},6000);}
-function end(){if(timer)clearTimeout(timer);timer=null;if(Date.now()-start<6000)msg.textContent='Hold for the full 6 seconds';}
-b.addEventListener('pointerdown',begin);b.addEventListener('pointerup',end);b.addEventListener('pointerleave',end);b.addEventListener('pointercancel',end);
-</script>
-""",height=70)
+# Gift-box button opens admin login
+if st.button("🎁", help="Admin login", key="gift_admin_button"):
+    st.session_state.show_admin_login = True
+if st.session_state.get("show_admin_login"):
+    st.query_params["admin"] = "1"
 
 if st.query_params.get("admin")=="1":
     st.title("🔐 Admin Login")
@@ -150,33 +139,41 @@ elif not followed:
 else:
     if "started_at" not in st.session_state: st.session_state.started_at=None
     if "stopped_elapsed" not in st.session_state: st.session_state.stopped_elapsed=None
-    if st.session_state.stopped_elapsed is None:
-        col1,col2=st.columns(2)
-        with col1:
-            if st.button("▶️ START TIMER",use_container_width=True,disabled=not username):
-                st.session_state.started_at=time.perf_counter()
-                st.session_state.stopped_elapsed=None
-                st.rerun()
-        with col2:
-            if st.button("🛑 STOP TIMER",use_container_width=True,disabled=st.session_state.started_at is None):
-                elapsed=time.perf_counter()-st.session_state.started_at
-                st.session_state.stopped_elapsed=elapsed
-                st.session_state.started_at=None
-                # Lock username for 24h immediately on timer stop, before submit.
-                set_lock(username)
-                st.rerun()
-        if st.session_state.started_at is not None:
-            st.warning("Timer is running. Press STOP once.")
-            st.metric("Elapsed",f"{time.perf_counter()-st.session_state.started_at:.3f} sec")
-            if st.button("Refresh display"): st.rerun()
-    else:
-        elapsed=float(st.session_state.stopped_elapsed)
-        st.metric("Your stopped time",f"{elapsed:.3f} sec")
-        st.write("Enter your name above, then submit your attempt.")
-        if st.button("Submit my time",use_container_width=True):
-            if not username:
-                st.error("Enter Instagram username.")
-            else:
+
+    @st.fragment(run_every="50ms")
+    def live_timer():
+        if st.session_state.stopped_elapsed is None:
+            elapsed_now=(time.perf_counter()-st.session_state.started_at) if st.session_state.started_at is not None else 0.0
+            st.markdown(
+                f"""<div style="background:#06110C;border:2px solid #A31C1B;border-radius:18px;padding:22px;text-align:center;color:#fff">
+                <div style="font-size:14px;letter-spacing:2px;color:#E7BD55">YOUR TIMER</div>
+                <div style="font-size:clamp(48px,12vw,82px);font-weight:900;font-variant-numeric:tabular-nums;line-height:1.1">{elapsed_now:0.3f}<span style="font-size:22px"> sec</span></div>
+                <div style="font-size:13px;color:#bbb">Stop as close as possible to today's secret target</div></div>""",
+                unsafe_allow_html=True)
+            col1,col2=st.columns(2)
+            with col1:
+                if st.button("▶️ START TIMER",use_container_width=True,
+                             disabled=(st.session_state.started_at is not None or not username),
+                             key="start_timer"):
+                    st.session_state.started_at=time.perf_counter()
+                    st.rerun()
+            with col2:
+                if st.button("🛑 STOP TIMER",use_container_width=True,
+                             disabled=(st.session_state.started_at is None),
+                             key="stop_timer"):
+                    elapsed=time.perf_counter()-st.session_state.started_at
+                    st.session_state.stopped_elapsed=elapsed
+                    st.session_state.started_at=None
+                    set_lock(username)
+                    st.rerun()
+        else:
+            st.markdown(
+                f"""<div style="background:#06110C;border:2px solid #A31C1B;border-radius:18px;padding:22px;text-align:center;color:#fff">
+                <div style="font-size:14px;color:#E7BD55">STOPPED TIME</div>
+                <div style="font-size:clamp(48px,12vw,82px);font-weight:900;font-variant-numeric:tabular-nums">{st.session_state.stopped_elapsed:0.3f}<span style="font-size:22px"> sec</span></div></div>""",
+                unsafe_allow_html=True)
+            if st.button("Submit my time",use_container_width=True,key="submit_time"):
+                elapsed=float(st.session_state.stopped_elapsed)
                 diff=abs(elapsed-float(daily["target"]))
                 with connect() as c:
                     c.execute("INSERT INTO entries(day,username,elapsed,diff,created_at) VALUES(?,?,?,?,?)",
@@ -184,6 +181,8 @@ else:
                 st.session_state.stopped_elapsed=None
                 st.success("Time submitted. You cannot play again for 24 hours.")
                 st.rerun()
+
+    live_timer()
 
 st.divider()
 st.subheader("🏁 Today's Leaderboard")
