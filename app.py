@@ -1,196 +1,163 @@
 import streamlit as st
-import sqlite3, os, secrets, hashlib, time
-from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
+import sqlite3, random, datetime, json, html
 import streamlit.components.v1 as components
 
-TZ=ZoneInfo("Asia/Kolkata")
-DB_PATH=os.getenv("DB_PATH","giveaway.db")
-ADMIN_USER=os.getenv("ADMIN_USER","Admin")
-ADMIN_PASSWORD=os.getenv("ADMIN_PASSWORD","@Krish9A")
-ADMIN_UPI=os.getenv("ADMIN_UPI_ID","")
-INSTAGRAM_USERNAME=os.getenv("INSTAGRAM_USERNAME","oyye_rider")
-TARGET_MIN=int(os.getenv("TARGET_MIN","10"))
-TARGET_MAX=int(os.getenv("TARGET_MAX","20"))
-PRIZE="₹100"
+st.set_page_config(page_title="Daily Timer Giveaway", page_icon="🎁", layout="centered")
 
-st.set_page_config(page_title="Daily Giveaway",page_icon="🎁",layout="centered")
+DB_PATH = "giveaway.db"
+TODAY = datetime.date.today().isoformat()
 
-def now():
-    return datetime.now(TZ)
-def today():
-    return now().date().isoformat()
-def connect():
-    conn=sqlite3.connect(DB_PATH,timeout=20,check_same_thread=False)
-    conn.row_factory=sqlite3.Row
-    return conn
+def db():
+    return sqlite3.connect(DB_PATH, check_same_thread=False)
+
 def init_db():
-    with connect() as c:
-        c.execute("""CREATE TABLE IF NOT EXISTS daily(day TEXT PRIMARY KEY,target REAL NOT NULL,winner_entry_id INTEGER)""")
-        c.execute("""CREATE TABLE IF NOT EXISTS entries(
-            id INTEGER PRIMARY KEY AUTOINCREMENT, day TEXT NOT NULL, username TEXT NOT NULL,
-            elapsed REAL NOT NULL, diff REAL NOT NULL, created_at TEXT NOT NULL)""")
-        c.execute("""CREATE TABLE IF NOT EXISTS play_locks(username TEXT PRIMARY KEY, stopped_at TEXT NOT NULL)""")
-        c.execute("""CREATE TABLE IF NOT EXISTS winner_upi(day TEXT PRIMARY KEY,entry_id INTEGER NOT NULL,upi TEXT NOT NULL)""")
-def get_daily():
-    d=today()
-    with connect() as c:
-        row=c.execute("SELECT * FROM daily WHERE day=?",(d,)).fetchone()
-        if row: return dict(row)
-        target=float(secrets.randbelow(TARGET_MAX-TARGET_MIN+1)+TARGET_MIN)
-        c.execute("INSERT OR IGNORE INTO daily(day,target,winner_entry_id) VALUES(?,?,NULL)",(d,target))
-        row=c.execute("SELECT * FROM daily WHERE day=?",(d,)).fetchone()
-        return dict(row)
-def get_entries(d):
-    with connect() as c:
-        return c.execute("SELECT * FROM entries WHERE day=? ORDER BY diff ASC,created_at ASC",(d,)).fetchall()
-def get_winner(d):
-    with connect() as c:
-        return c.execute("""SELECT e.* FROM daily d LEFT JOIN entries e ON e.id=d.winner_entry_id WHERE d.day=?""",(d,)).fetchone()
-def lock_winner(d):
-    with connect() as c:
-        c.execute("""UPDATE daily SET winner_entry_id=(SELECT id FROM entries WHERE day=? ORDER BY diff ASC,created_at ASC LIMIT 1)
-                     WHERE day=? AND winner_entry_id IS NULL AND EXISTS(SELECT 1 FROM entries WHERE day=?)""",(d,d,d))
-def get_lock(username):
-    if not username: return None
-    with connect() as c:
-        return c.execute("SELECT stopped_at FROM play_locks WHERE username=?",(username.lower(),)).fetchone()
-def cooldown_remaining(username):
-    row=get_lock(username)
-    if not row: return 0
-    try:
-        stopped=datetime.fromisoformat(row["stopped_at"])
-        remaining=24*60*60-(now()-stopped).total_seconds()
-        return max(0,int(remaining))
-    except Exception: return 0
-def set_lock(username):
-    with connect() as c:
-        c.execute("""INSERT INTO play_locks(username,stopped_at) VALUES(?,?)
-                     ON CONFLICT(username) DO UPDATE SET stopped_at=excluded.stopped_at""",
-                  (username.lower(),now().isoformat()))
+    with db() as con:
+        con.execute("""CREATE TABLE IF NOT EXISTS targets (
+            day TEXT PRIMARY KEY, target INTEGER NOT NULL)""")
+        con.execute("""CREATE TABLE IF NOT EXISTS entries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            day TEXT NOT NULL, instagram TEXT NOT NULL,
+            elapsed REAL NOT NULL, created_at TEXT NOT NULL,
+            UNIQUE(day, instagram))""")
+        row = con.execute("SELECT target FROM targets WHERE day=?", (TODAY,)).fetchone()
+        if row is None:
+            target = random.randint(10, 20)
+            con.execute("INSERT INTO targets(day,target) VALUES (?,?)", (TODAY,target))
+            con.commit()
+            return target
+        return row[0]
 
-init_db()
-d=today()
-daily=get_daily()
+target = init_db()
+
 st.markdown("""
 <style>
-.block-container{max-width:760px;padding-top:1.2rem}
-.winner{background:linear-gradient(135deg,#171717,#06110C);padding:22px;border-radius:18px;color:#fff;border:1px solid #A31C1B}
-.winner h1,.winner h2,.winner p{color:white}
-div.stButton>button{border-radius:12px;font-weight:700;min-height:45px}
+.stApp {background: radial-gradient(circle at top, #202020, #080808 70%); color:#fff;}
+.block-container {max-width: 760px; padding-top: 1.5rem;}
+h1,h2,h3,p,label {color:#fff!important;}
+div[data-testid="stMetric"] {background:#171717; border:1px solid #333; padding:14px; border-radius:14px;}
 </style>
-""",unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
-# Gift-box button opens admin login
-if st.button("🎁", help="Admin login", key="gift_admin_button"):
-    st.session_state.show_admin_login = True
-if st.session_state.get("show_admin_login"):
-    st.query_params["admin"] = "1"
+st.title("🎁 Daily Timer Giveaway")
+st.caption("Follow Instagram → Start Timer → Stop near the target → Submit Instagram ID")
+st.markdown(f"""
+<div style="background:linear-gradient(135deg,#9b1515,#330909);padding:22px;border-radius:18px;text-align:center;border:1px solid #ff5555">
+<div style="font-size:15px;letter-spacing:2px;color:#ffdada">TODAY'S TARGET</div>
+<div style="font-size:clamp(48px,10vw,76px);font-weight:900;line-height:1.15;color:white">{target}.000 <span style="font-size:24px">SEC</span></div>
+<div style="font-size:15px;color:#ffe4e4">Stop as close as possible to {target}.000 seconds!</div>
+</div>
+""", unsafe_allow_html=True)
 
-if st.query_params.get("admin")=="1":
-    st.title("🔐 Admin Login")
-    admin_user=st.text_input("Admin User")
-    admin_pass=st.text_input("Passcode",type="password")
-    if st.button("Login"):
-        if secrets.compare_digest(admin_user,ADMIN_USER) and secrets.compare_digest(admin_pass,ADMIN_PASSWORD):
-            st.session_state.admin_auth=True
-            st.success("Admin login successful")
+st.markdown("### 1️⃣ Follow Instagram")
+st.link_button("📸 Follow @oyye_rider on Instagram", "https://www.instagram.com/oyye_rider/")
+st.info("Instagram follow status is not verified automatically. Follow the account, then continue.")
+
+if "follow_confirmed" not in st.session_state:
+    st.session_state.follow_confirmed = False
+st.checkbox("I have followed @oyye_rider", key="follow_confirmed")
+
+st.markdown("### 2️⃣ Enter your Instagram username")
+username = st.text_input("Instagram ID (without @)", placeholder="your_instagram_id").strip().lstrip("@")
+username_clean = username.lower()
+
+st.markdown("### 3️⃣ Timer Challenge")
+st.caption("Press START. The timer runs smoothly in your browser. At the target, a beep sounds. Press STOP as close to the target as possible.")
+
+if st.session_state.follow_confirmed:
+    if not username or len(username) < 2:
+        st.warning("Enter your Instagram username first.")
+    else:
+        already = False
+        with db() as con:
+            already = con.execute("SELECT 1 FROM entries WHERE day=? AND instagram=?", (TODAY, username_clean)).fetchone() is not None
+        if already:
+            st.warning("This Instagram ID has already submitted today.")
         else:
-            st.error("Wrong username or passcode")
-    if st.session_state.get("admin_auth"):
-        st.subheader("Admin Dashboard")
-        st.write(f"**Today's secret target:** {daily['target']:.3f} seconds")
-        st.write(f"**Admin-only UPI ID:** {ADMIN_UPI or 'Set ADMIN_UPI_ID in environment/secrets'}")
-        if st.button("Finalize today's closest-time winner"):
-            lock_winner(d)
-            st.success("Winner locked.")
-            st.rerun()
-        st.write("Today's entries:")
-        for row in get_entries(d):
-            st.write(f"@{row['username']} — {row['elapsed']:.3f}s (difference {row['diff']:.3f}s)")
-        if st.button("Logout"):
-            st.session_state.admin_auth=False
-            st.rerun()
-    st.stop()
-
-st.title("🎁 Daily Giveaway")
-st.caption(f"{now().strftime('%d %b %Y')} • Prize {PRIZE} • Free Entry")
-winner=get_winner(d)
-if winner and winner["id"]:
-    st.markdown(f"""<div class="winner"><p>🏆 TODAY'S WINNER</p><h1>@{winner['username']}</h1><h2>{winner['elapsed']:.3f} sec</h2><p>Prize: {PRIZE}</p></div>""",unsafe_allow_html=True)
-else:
-    st.info("Today's winner will be shown here after Admin finalizes the entries.")
-
-st.subheader("📲 Follow to participate")
-st.link_button(f"Open Instagram @{INSTAGRAM_USERNAME}",f"https://www.instagram.com/{INSTAGRAM_USERNAME}/",use_container_width=True)
-followed=st.checkbox(f"I have followed @{INSTAGRAM_USERNAME}")
-st.caption("Follow status is self-confirmed in this prototype. It is not automatically verified by Instagram.")
-st.subheader("⏱️ Timer Challenge")
-st.markdown(f"""<div style="background:linear-gradient(135deg,#171717,#06110C);border:2px solid #A31C1B;border-radius:18px;padding:18px;text-align:center;color:#fff;margin:10px 0"><div style="color:#E7BD55;font-weight:700;letter-spacing:2px">TODAY'S TARGET</div><div style="font-size:clamp(42px,10vw,68px);font-weight:900;font-variant-numeric:tabular-nums">{daily['target']:.0f}.000 <span style="font-size:22px">SEC</span></div><div style="font-size:14px;color:#ddd">Stop as close as possible to this exact time!</div></div>""",unsafe_allow_html=True)
-st.caption("Daily target is a whole number of seconds (milliseconds .000). Closest submitted time wins.")
-username=st.text_input("Instagram username (without @)",max_chars=30,placeholder="your_username").strip().lower().lstrip("@")
-remaining=cooldown_remaining(username)
-if remaining>0:
-    hours=remaining//3600; mins=(remaining%3600)//60; secs=remaining%60
-    st.warning(f"@{username} has already played. Try again in {hours:02d}:{mins:02d}:{secs:02d} (24-hour cooldown).")
-elif winner and winner["id"]:
-    st.warning("Today's winner is finalized. Game is closed.")
-elif not followed:
-    st.info("Follow the Instagram page and check the box to enable the timer.")
-else:
-    if "started_at" not in st.session_state: st.session_state.started_at=None
-    if "stopped_elapsed" not in st.session_state: st.session_state.stopped_elapsed=None
-
-    @st.fragment(run_every="50ms")
-    def live_timer():
-        if st.session_state.stopped_elapsed is None:
-            elapsed_now=(time.perf_counter()-st.session_state.started_at) if st.session_state.started_at is not None else 0.0
-            st.markdown(
-                f"""<div style="background:#06110C;border:2px solid #A31C1B;border-radius:18px;padding:22px;text-align:center;color:#fff">
-                <div style="font-size:14px;letter-spacing:2px;color:#E7BD55">YOUR TIMER</div>
-                <div style="font-size:clamp(48px,12vw,82px);font-weight:900;font-variant-numeric:tabular-nums;line-height:1.1">{elapsed_now:0.3f}<span style="font-size:22px"> sec</span></div>
-                <div style="font-size:13px;color:#bbb">Stop as close as possible to today's target</div></div>""",
-                unsafe_allow_html=True)
-            col1,col2=st.columns(2)
-            with col1:
-                if st.button("▶️ START TIMER",use_container_width=True,
-                             disabled=(st.session_state.started_at is not None or not username),
-                             key="start_timer"):
-                    st.session_state.started_at=time.perf_counter()
-                    st.rerun()
-            with col2:
-                if st.button("🛑 STOP TIMER",use_container_width=True,
-                             disabled=(st.session_state.started_at is None),
-                             key="stop_timer"):
-                    elapsed=time.perf_counter()-st.session_state.started_at
-                    st.session_state.stopped_elapsed=elapsed
-                    st.session_state.started_at=None
-                    set_lock(username)
-                    st.rerun()
-        else:
-            st.markdown(
-                f"""<div style="background:#06110C;border:2px solid #A31C1B;border-radius:18px;padding:22px;text-align:center;color:#fff">
-                <div style="font-size:14px;color:#E7BD55">STOPPED TIME</div>
-                <div style="font-size:clamp(48px,12vw,82px);font-weight:900;font-variant-numeric:tabular-nums">{st.session_state.stopped_elapsed:0.3f}<span style="font-size:22px"> sec</span></div></div>""",
-                unsafe_allow_html=True)
-            if st.button("Submit my time",use_container_width=True,key="submit_time"):
-                elapsed=float(st.session_state.stopped_elapsed)
-                diff=abs(elapsed-float(daily["target"]))
-                with connect() as c:
-                    c.execute("INSERT INTO entries(day,username,elapsed,diff,created_at) VALUES(?,?,?,?,?)",
-                              (d,username,elapsed,diff,now().isoformat()))
-                st.session_state.stopped_elapsed=None
-                st.success("Time submitted. You cannot play again for 24 hours.")
+            timer_html = r"""
+<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;background:#111;color:white;font-family:Arial,sans-serif">
+<div style="border:1px solid #333;border-radius:16px;background:#151515;padding:18px;text-align:center">
+  <div id="status" style="color:#ffb3b3;font-size:14px;margin-bottom:8px">READY</div>
+  <div id="display" style="font-size:clamp(52px,13vw,86px);font-weight:900;font-variant-numeric:tabular-nums;letter-spacing:1px">00.000</div>
+  <div style="font-size:13px;color:#aaa;margin:4px 0 14px">SECONDS</div>
+  <button id="start" style="background:#16803c;color:white;border:0;border-radius:12px;padding:15px 28px;font-size:20px;font-weight:bold;width:48%">START</button>
+  <button id="stop" disabled style="background:#b32020;color:white;border:0;border-radius:12px;padding:15px 28px;font-size:20px;font-weight:bold;width:48%;opacity:.5">STOP</button>
+  <div id="result" style="margin-top:14px;font-size:16px;color:#ffe0a3"></div>
+</div>
+<script>
+const target = __TARGET__;
+let startAt=null, raf=null, stopped=false, beeped=false;
+const display=document.getElementById('display'), status=document.getElementById('status');
+const startBtn=document.getElementById('start'), stopBtn=document.getElementById('stop'), result=document.getElementById('result');
+function beep(){
+ try {
+   const ctx=new (window.AudioContext||window.webkitAudioContext)();
+   const osc=ctx.createOscillator(), gain=ctx.createGain();
+   osc.type='sine'; osc.frequency.value=880; gain.gain.value=.18;
+   osc.connect(gain); gain.connect(ctx.destination); osc.start();
+   setTimeout(()=>{osc.stop();ctx.close();},220);
+ } catch(e){}
+}
+function tick(){
+ if(startAt===null || stopped) return;
+ const ms=performance.now()-startAt, sec=ms/1000;
+ display.textContent=sec.toFixed(3);
+ if(!beeped && sec>=target){beeped=true;beep();status.textContent='🎯 TARGET! STOP NOW';status.style.color='#ffe066';}
+ raf=requestAnimationFrame(tick);
+}
+startBtn.onclick=()=>{
+ if(startAt!==null) return;
+ startAt=performance.now(); status.textContent='RUNNING'; startBtn.disabled=true;startBtn.style.opacity='.5';
+ stopBtn.disabled=false;stopBtn.style.opacity='1';raf=requestAnimationFrame(tick);
+};
+stopBtn.onclick=()=>{
+ if(startAt===null||stopped)return;
+ stopped=true;cancelAnimationFrame(raf);
+ const elapsed=(performance.now()-startAt)/1000;
+ display.textContent=elapsed.toFixed(3);status.textContent='STOPPED';stopBtn.disabled=true;
+ result.textContent='Stopped time: '+elapsed.toFixed(3)+' sec';
+ const payload={elapsed:elapsed, user:__USERNAME__};
+ window.parent.postMessage({type:'streamlit:setComponentValue',value:payload},'*');
+ window.parent.postMessage({type:'streamlit:setFrameHeight',height:240},'*');
+};
+</script></body></html>
+"""
+            timer_html = timer_html.replace("__TARGET__", str(target)).replace("__USERNAME__", json.dumps(username_clean))
+            stopped_data = components.html(timer_html, height=260, scrolling=False)
+            if isinstance(stopped_data, dict) and "elapsed" in stopped_data:
+                elapsed = float(stopped_data["elapsed"])
+                # store once; username is already collected outside the iframe
+                with db() as con:
+                    try:
+                        con.execute("INSERT INTO entries(day,instagram,elapsed,created_at) VALUES(?,?,?,?)",
+                                    (TODAY, username_clean, elapsed, datetime.datetime.now().isoformat(timespec="seconds")))
+                        con.commit()
+                        st.success(f"Time submitted: {elapsed:.3f} sec")
+                    except sqlite3.IntegrityError:
+                        st.warning("This Instagram ID has already submitted today.")
                 st.rerun()
-
-    live_timer()
+else:
+    st.warning("Follow Instagram and tick the confirmation box to unlock the timer.")
 
 st.divider()
-st.subheader("🏁 Today's Leaderboard")
-rows=get_entries(d)
-if rows:
-    for i,row in enumerate(rows[:30],1):
-        st.write(f"{'🥇' if i==1 else f'{i}.'} **@{row['username']}** — {row['elapsed']:.3f} sec")
+st.markdown("## 🏆 Today's Leaderboard")
+with db() as con:
+    rows=con.execute("SELECT instagram,elapsed,created_at FROM entries WHERE day=?", (TODAY,)).fetchall()
+rows=sorted(rows,key=lambda r:(abs(r[1]-target), r[2]))
+if not rows:
+    st.write("No entries yet. Be the first!")
 else:
-    st.caption("No entries yet.")
-st.caption("Winner is finalized by Admin based on the closest stopped time to today's displayed target.")
+    for i,(ig,elapsed,created) in enumerate(rows[:50], start=1):
+        diff=abs(elapsed-target)
+        medal = "🥇" if i==1 else "🥈" if i==2 else "🥉" if i==3 else f"#{i}"
+        st.markdown(f"""
+<div style="display:flex;justify-content:space-between;align-items:center;background:#171717;border:1px solid #333;border-radius:12px;padding:12px 14px;margin:7px 0">
+<div><b>{medal} @{html.escape(ig)}</b><div style="color:#aaa;font-size:12px">Difference: {diff:.3f} sec</div></div>
+<div style="font-size:20px;font-weight:bold;color:#ffdf8a">{elapsed:.3f} sec</div>
+</div>
+""", unsafe_allow_html=True)
+    winner=rows[0]
+    st.success(f"Current closest: @{winner[0]} — {winner[1]:.3f} sec. Admin will contact the winner.")
+
+st.markdown("---")
+st.caption("Winner is the entry closest to today's target. Admin contacts the winner directly. Avoid submitting sensitive payment details publicly.")
