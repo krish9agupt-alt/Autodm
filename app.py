@@ -10,8 +10,8 @@ ADMIN_USER=os.getenv("ADMIN_USER","Admin")
 ADMIN_PASSWORD=os.getenv("ADMIN_PASSWORD","@Krish9A")
 ADMIN_UPI=os.getenv("ADMIN_UPI_ID","")
 INSTAGRAM_USERNAME=os.getenv("INSTAGRAM_USERNAME","oyye_rider")
-TARGET_MIN=float(os.getenv("TARGET_MIN","5.0"))
-TARGET_MAX=float(os.getenv("TARGET_MAX","15.0"))
+TARGET_MIN=int(os.getenv("TARGET_MIN","10"))
+TARGET_MAX=int(os.getenv("TARGET_MAX","20"))
 PRIZE="₹100"
 
 st.set_page_config(page_title="Daily Giveaway",page_icon="🎁",layout="centered")
@@ -37,7 +37,7 @@ def get_daily():
     with connect() as c:
         row=c.execute("SELECT * FROM daily WHERE day=?",(d,)).fetchone()
         if row: return dict(row)
-        target=round(TARGET_MIN+(TARGET_MAX-TARGET_MIN)*secrets.randbelow(1000000)/1000000,3)
+        target=float(secrets.randbelow(TARGET_MAX-TARGET_MIN+1)+TARGET_MIN)
         c.execute("INSERT OR IGNORE INTO daily(day,target,winner_entry_id) VALUES(?,?,NULL)",(d,target))
         row=c.execute("SELECT * FROM daily WHERE day=?",(d,)).fetchone()
         return dict(row)
@@ -126,7 +126,8 @@ st.link_button(f"Open Instagram @{INSTAGRAM_USERNAME}",f"https://www.instagram.c
 followed=st.checkbox(f"I have followed @{INSTAGRAM_USERNAME}")
 st.caption("Follow status is self-confirmed in this prototype. It is not automatically verified by Instagram.")
 st.subheader("⏱️ Timer Challenge")
-st.caption("Today's target is secret. Closest submitted time wins. Timer precision can be affected by browser/network delays.")
+st.markdown(f"""<div style="background:linear-gradient(135deg,#171717,#06110C);border:2px solid #A31C1B;border-radius:18px;padding:18px;text-align:center;color:#fff;margin:10px 0"><div style="color:#E7BD55;font-weight:700;letter-spacing:2px">TODAY'S TARGET</div><div style="font-size:clamp(42px,10vw,68px);font-weight:900;font-variant-numeric:tabular-nums">{daily['target']:.0f}.000 <span style="font-size:22px">SEC</span></div><div style="font-size:14px;color:#ddd">Stop as close as possible to this exact time!</div></div>""",unsafe_allow_html=True)
+st.caption("Daily target is a whole number of seconds (milliseconds .000). Closest submitted time wins.")
 username=st.text_input("Instagram username (without @)",max_chars=30,placeholder="your_username").strip().lower().lstrip("@")
 remaining=cooldown_remaining(username)
 if remaining>0:
@@ -148,7 +149,7 @@ else:
                 f"""<div style="background:#06110C;border:2px solid #A31C1B;border-radius:18px;padding:22px;text-align:center;color:#fff">
                 <div style="font-size:14px;letter-spacing:2px;color:#E7BD55">YOUR TIMER</div>
                 <div style="font-size:clamp(48px,12vw,82px);font-weight:900;font-variant-numeric:tabular-nums;line-height:1.1">{elapsed_now:0.3f}<span style="font-size:22px"> sec</span></div>
-                <div style="font-size:13px;color:#bbb">Stop as close as possible to today's secret target</div></div>""",
+                <div style="font-size:13px;color:#bbb">Stop as close as possible to today's target</div></div>""",
                 unsafe_allow_html=True)
             col1,col2=st.columns(2)
             with col1:
@@ -192,4 +193,4 @@ if rows:
         st.write(f"{'🥇' if i==1 else f'{i}.'} **@{row['username']}** — {row['elapsed']:.3f} sec")
 else:
     st.caption("No entries yet.")
-st.caption("Winner is finalized by Admin based on closest time to the hidden target.")
+st.caption("Winner is finalized by Admin based on the closest stopped time to today's displayed target.")
