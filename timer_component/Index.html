@@ -1,9 +1,297 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><script src="https://cdn.jsdelivr.net/npm/streamlit-component-lib@1.4.0/dist/streamlit.min.js"></script><style>body{margin:0;background:#111;color:#fff;font-family:Arial}.box{border:1px solid #333;border-radius:16px;background:#151515;padding:18px;text-align:center}#time{font-size:clamp(52px,13vw,86px);font-weight:900;font-variant-numeric:tabular-nums}button{border:0;border-radius:12px;padding:14px 18px;font-size:19px;font-weight:bold;width:48%;color:white}#start{background:#16803c}#stop{background:#b32020}#send{background:#1d65bd;width:94%}button:disabled{opacity:.4}input{width:90%;padding:12px;border-radius:10px;background:#222;color:white;border:1px solid #555;font-size:17px;margin:10px 0}</style></head><body><div class="box"><div id="status">READY</div><div id="time">00.000</div><div style="color:#aaa;margin-bottom:12px">SECONDS</div><button id="start">START</button><button id="stop" disabled>STOP</button><div id="message" style="margin-top:12px;color:#ffe0a3"></div><div id="submitbox" style="display:none"><p>Timer stopped! Enter your Instagram ID:</p><input id="ig" placeholder="Instagram username (without @)" maxlength="30"><button id="send">SUBMIT ENTRY</button></div><div id="blocked" style="display:none;color:#ffb5b5">This browser has used its daily entry. Return tomorrow.</div></div><script>
-const target=Number(Streamlit.args.target), day=String(Streamlit.args.day), key='giveaway_access_'+day;let t0=null,stopped=false,beeped=false,raf=0,elapsed=0;
-const time=document.getElementById('time'),status=document.getElementById('status'),start=document.getElementById('start'),stop=document.getElementById('stop'),msg=document.getElementById('message'),submitbox=document.getElementById('submitbox');
-function height(){Streamlit.setFrameHeight(document.body.scrollHeight)}
-function beep(){try{const c=new(window.AudioContext||window.webkitAudioContext)(),o=c.createOscillator(),g=c.createGain();o.frequency.value=880;g.gain.value=.2;o.connect(g);g.connect(c.destination);o.start();setTimeout(()=>{o.stop();c.close()},250)}catch(e){}}
-function loop(){if(t0===null||stopped)return;const sec=(performance.now()-t0)/1000;time.textContent=sec.toFixed(3);if(!beeped&&sec>=target){beeped=true;beep();status.textContent='🎯 TARGET! STOP';status.style.color='#ffe066'}raf=requestAnimationFrame(loop)}
-if(localStorage.getItem(key)){start.disabled=true;stop.disabled=true;document.getElementById('blocked').style.display='block';status.textContent='DAILY ENTRY USED'}else{start.onclick=()=>{if(t0!==null)return;t0=performance.now();start.disabled=true;stop.disabled=false;status.textContent='RUNNING';raf=requestAnimationFrame(loop)};stop.onclick=()=>{if(t0===null||stopped)return;stopped=true;cancelAnimationFrame(raf);elapsed=(performance.now()-t0)/1000;time.textContent=elapsed.toFixed(3);status.textContent='STOPPED';stop.disabled=true;msg.textContent='Stopped time: '+elapsed.toFixed(3)+' sec';submitbox.style.display='block';height()};document.getElementById('send').onclick=()=>{const username=document.getElementById('ig').value.trim().replace(/^@/,'').toLowerCase();if(username.length<2){msg.textContent='Please enter a valid Instagram ID';return}localStorage.setItem(key,'1');Streamlit.setComponentValue({submitted:true,elapsed:elapsed,instagram:username});document.getElementById('send').disabled=true;msg.textContent='Submitting…'}}
-Streamlit.setComponentReady();Streamlit.setFrameHeight(document.body.scrollHeight);
-</script></body></html>
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+
+<meta name="viewport"
+content="width=device-width, initial-scale=1">
+
+<script src="https://cdn.jsdelivr.net/npm/streamlit-component-lib@1.4.0/dist/streamlit.min.js"></script>
+
+<style>
+body {
+    margin: 0;
+    background: #111;
+    color: white;
+    font-family: Arial, sans-serif;
+}
+
+.container {
+    background: #151515;
+    border: 1px solid #333;
+    border-radius: 16px;
+    padding: 18px;
+    text-align: center;
+}
+
+#display {
+    font-size: clamp(52px, 13vw, 86px);
+    font-weight: 900;
+    font-variant-numeric: tabular-nums;
+}
+
+#status {
+    color: #ffb3b3;
+    margin-bottom: 10px;
+}
+
+button {
+    border: none;
+    border-radius: 12px;
+    padding: 14px;
+    font-size: 20px;
+    font-weight: bold;
+    width: 48%;
+    color: white;
+}
+
+#start {
+    background: #16803c;
+}
+
+#stop {
+    background: #b32020;
+}
+
+#submit {
+    width: 95%;
+    background: #1768bd;
+}
+
+button:disabled {
+    opacity: 0.4;
+}
+
+input {
+    width: 90%;
+    padding: 12px;
+    font-size: 17px;
+    border-radius: 10px;
+    margin: 10px 0;
+    background: #222;
+    border: 1px solid #555;
+    color: white;
+}
+
+#submitBox {
+    display: none;
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+    <div id="status">READY</div>
+
+    <div id="display">00.000</div>
+
+    <p>SECONDS</p>
+
+    <button id="start">START</button>
+
+    <button id="stop" disabled>STOP</button>
+
+    <div id="result"></div>
+
+    <div id="submitBox">
+
+        <p>Timer stopped! Enter Instagram ID:</p>
+
+        <input
+            id="instagram"
+            placeholder="Instagram username"
+            maxlength="30"
+        >
+
+        <button id="submit">SUBMIT ENTRY</button>
+
+    </div>
+
+    <div id="usedMessage"
+    style="display:none;color:#ff7777">
+        You have already played today.
+        Come back tomorrow.
+    </div>
+
+</div>
+
+<script>
+const target = Number(Streamlit.args.target);
+const day = String(Streamlit.args.day);
+
+const storageKey = "giveaway_played_" + day;
+
+let startTime = null;
+let stopped = false;
+let elapsed = 0;
+let animation = null;
+let beeped = false;
+
+const display = document.getElementById("display");
+const status = document.getElementById("status");
+
+const startBtn = document.getElementById("start");
+const stopBtn = document.getElementById("stop");
+
+const result = document.getElementById("result");
+const submitBox = document.getElementById("submitBox");
+
+
+function beep() {
+
+    try {
+
+        const audio = new (
+            window.AudioContext ||
+            window.webkitAudioContext
+        )();
+
+        const oscillator = audio.createOscillator();
+        const gain = audio.createGain();
+
+        oscillator.frequency.value = 880;
+        gain.gain.value = 0.2;
+
+        oscillator.connect(gain);
+        gain.connect(audio.destination);
+
+        oscillator.start();
+
+        setTimeout(() => {
+            oscillator.stop();
+            audio.close();
+        }, 250);
+
+    } catch (e) {}
+}
+
+
+function timerLoop() {
+
+    if (startTime === null || stopped) {
+        return;
+    }
+
+    const seconds =
+        (performance.now() - startTime) / 1000;
+
+    display.textContent = seconds.toFixed(3);
+
+    if (!beeped && seconds >= target) {
+
+        beeped = true;
+
+        beep();
+
+        status.textContent = "🎯 TARGET! STOP NOW";
+
+        status.style.color = "#ffe066";
+    }
+
+    animation = requestAnimationFrame(timerLoop);
+}
+
+
+if (localStorage.getItem(storageKey)) {
+
+    startBtn.disabled = true;
+    stopBtn.disabled = true;
+
+    document.getElementById(
+        "usedMessage"
+    ).style.display = "block";
+
+    status.textContent = "ALREADY PLAYED";
+
+} else {
+
+    startBtn.onclick = function() {
+
+        if (startTime !== null) {
+            return;
+        }
+
+        startTime = performance.now();
+
+        status.textContent = "RUNNING";
+
+        startBtn.disabled = true;
+
+        stopBtn.disabled = false;
+
+        animation = requestAnimationFrame(timerLoop);
+    };
+
+
+    stopBtn.onclick = function() {
+
+        if (startTime === null || stopped) {
+            return;
+        }
+
+        stopped = true;
+
+        cancelAnimationFrame(animation);
+
+        elapsed =
+            (performance.now() - startTime) / 1000;
+
+        display.textContent = elapsed.toFixed(3);
+
+        status.textContent = "STOPPED";
+
+        stopBtn.disabled = true;
+
+        result.textContent =
+            "Stopped time: " + elapsed.toFixed(3) + " sec";
+
+        submitBox.style.display = "block";
+
+        Streamlit.setFrameHeight(
+            document.body.scrollHeight
+        );
+    };
+
+
+    document.getElementById("submit").onclick = function() {
+
+        const instagram = document.getElementById(
+            "instagram"
+        ).value.trim().replace(/^@/, "").toLowerCase();
+
+        if (instagram.length < 2) {
+
+            result.textContent =
+                "Please enter a valid Instagram ID.";
+
+            return;
+        }
+
+        localStorage.setItem(storageKey, "1");
+
+        Streamlit.setComponentValue({
+            submitted: true,
+            elapsed: elapsed,
+            instagram: instagram
+        });
+
+        document.getElementById("submit").disabled = true;
+
+        result.textContent = "Submitting...";
+    };
+
+}
+
+
+Streamlit.setComponentReady();
+
+Streamlit.setFrameHeight(
+    document.body.scrollHeight
+);
+
+</script>
+
+</body>
+</html>
