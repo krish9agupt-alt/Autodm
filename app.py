@@ -9,11 +9,15 @@ import re
 from pathlib import Path
 
 # --- PAGE CONFIG ---
-st.set_page_config(page_title="Oyye Rider | Daily Timer Challenge", page_icon="⏱️", layout="centered")
+st.set_page_config(
+    page_title="Oyye Rider | Daily Timer Challenge",
+    page_icon="⏱️",
+    layout="centered",
+    initial_sidebar_state="collapsed"
+)
 
-# --- AUTO-CREATE BULLETPROOF TIMER COMPONENT (ZERO EXTERNAL CDN) ---
+# --- CREATE TIMER COMPONENT ONCE (SAVES CPU & DISK I/O) ---
 COMPONENT_DIR = Path(__file__).parent / "timer_component_v2"
-COMPONENT_DIR.mkdir(exist_ok=True)
 INDEX_HTML = COMPONENT_DIR / "index.html"
 
 HTML_CODE = """<!DOCTYPE html>
@@ -154,9 +158,7 @@ HTML_CODE = """<!DOCTYPE html>
         gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.25);
         osc.start(audioCtx.currentTime);
         osc.stop(audioCtx.currentTime + 0.25);
-      } catch (e) {
-        console.warn("Audio error:", e);
-      }
+      } catch (e) {}
     }
 
     function formatTime(sec) {
@@ -256,15 +258,50 @@ HTML_CODE = """<!DOCTYPE html>
 </html>
 """
 
-INDEX_HTML.write_text(HTML_CODE, encoding="utf-8")
+@st.cache_resource
+def setup_component_and_db():
+    COMPONENT_DIR.mkdir(exist_ok=True)
+    if not INDEX_HTML.exists() or INDEX_HTML.read_text(encoding="utf-8") != HTML_CODE:
+        INDEX_HTML.write_text(HTML_CODE, encoding="utf-8")
+    
+    conn = sqlite3.connect('giveaway.db', check_same_thread=False)
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS targets (day TEXT PRIMARY KEY, target INTEGER)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS entries 
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT, day TEXT, instagram TEXT, 
+                  elapsed REAL, created_at TEXT, UNIQUE(day, instagram))''')
+    conn.commit()
+    return conn
+
+conn = setup_component_and_db()
 timer_component = components.declare_component("timer_component", path=str(COMPONENT_DIR))
 
-# --- CUSTOM CSS (Dark Gaming Theme) ---
+# --- CUSTOM CSS (Dark Gaming Theme + Hide Bottom-Right Icons) ---
 st.markdown("""
 <style>
     [data-testid="stAppViewContainer"] { background-color: #050505; color: #ffffff; }
-    [data-testid="stHeader"] { background-color: transparent; }
-    #MainMenu, footer, header { visibility: hidden; }
+    [data-testid="stHeader"], [data-testid="stToolbar"], [data-testid="stDecoration"], [data-testid="stStatusWidget"] {
+        display: none !important;
+        visibility: hidden !important;
+    }
+    #MainMenu, footer, header {
+        display: none !important;
+        visibility: hidden !important;
+    }
+    /* Hide Bottom-Right Streamlit Cloud Badges & Icons */
+    .viewerBadge_container__r5tak,
+    .viewerBadge_link__qRIco,
+    .styles_viewerBadge__CvC9N,
+    ._container_gzau3_1,
+    ._profileContainer_gzau3_53,
+    ._profilePreview_gzau3_63,
+    [data-testid="manage-app-button"],
+    a[href*="streamlit.io/cloud"] {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+    }
     
     .brand-title { text-align: center; color: #ffffff; font-weight: 900; font-size: 2rem; margin-bottom: 5px; }
     .gold-highlight { color: #d4af37; text-shadow: 0 0 10px rgba(212,175,55,0.4); }
@@ -304,32 +341,21 @@ st.markdown("""
 
     .leaderboard-row {
         display: flex; justify-content: space-between; align-items: center;
-        padding: 10px 12px; border-bottom: 1px solid #330000;
+        padding: 12px 14px; border-bottom: 1px solid #330000;
         font-family: monospace; font-size: 1rem;
     }
+    .leaderboard-row:last-child { border-bottom: none; }
     .leaderboard-row:nth-child(odd) { background-color: rgba(255,0,0,0.05); }
     .rank-1 { color: #ffd700; font-weight: bold; font-size: 1.15rem; }
-    .rank-2 { color: #c0c0c0; font-weight: bold; }
-    .rank-3 { color: #cd7f32; font-weight: bold; }
+    .rank-2 { color: #c0c0c0; font-weight: bold; font-size: 1.08rem; }
+    .rank-3 { color: #cd7f32; font-weight: bold; font-size: 1.05rem; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- INIT DATABASE & TIMEZONE ---
+# --- TIMEZONE & DAILY TARGET ---
 IST = ZoneInfo('Asia/Kolkata')
 today_ist = datetime.now(IST).strftime('%Y-%m-%d')
 WIN_TOLERANCE = 0.001  # Exact target (0.000) or +/- 0.001s
-
-def init_db():
-    conn = sqlite3.connect('giveaway.db', check_same_thread=False)
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS targets (day TEXT PRIMARY KEY, target INTEGER)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS entries 
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT, day TEXT, instagram TEXT, 
-                  elapsed REAL, created_at TEXT, UNIQUE(day, instagram))''')
-    conn.commit()
-    return conn
-
-conn = init_db()
 
 def get_daily_target(date_str):
     c = conn.cursor()
@@ -338,9 +364,10 @@ def get_daily_target(date_str):
     if row:
         return int(row[0])
     new_target = random.randint(10, 20)
-    c.execute("INSERT INTO targets (day, target) VALUES (?, ?)", (date_str, new_target))
+    c.execute("INSERT OR IGNORE INTO targets (day, target) VALUES (?, ?)", (date_str, new_target))
     conn.commit()
-    return new_target
+    c.execute("SELECT target FROM targets WHERE day = ?", (date_str,))
+    return int(c.fetchone()[0])
 
 daily_target = get_daily_target(today_ist)
 min_win_time = daily_target - WIN_TOLERANCE
@@ -350,17 +377,15 @@ max_win_time = daily_target + WIN_TOLERANCE
 st.markdown("<p class='brand-title'>@oyye_rider <span class='gold-highlight'>Giveaway</span></p>", unsafe_allow_html=True)
 st.markdown("<a href='https://www.instagram.com/oyye_rider/' target='_blank' class='insta-btn'>📸 Follow @oyye_rider on Instagram</a>", unsafe_allow_html=True)
 
-st.markdown(f"""
-<div class="glass-card">
-    <h3 style='text-align:center; margin:0; color:#d4af37;'>🎯 Today's Target Time</h3>
-    <div class="target-box">
-        <span class="target-time">{daily_target:.3f} SEC</span>
-    </div>
-    <p style='text-align:center; color:#ccc; font-size: 0.9rem; margin:0;'>
-        Win Rule: Stop at exact <b>{daily_target:.3f}s</b> or within <b>±0.001s</b> (<b>{min_win_time:.3f}s – {max_win_time:.3f}s</b>)!
-    </p>
-</div>
-""", unsafe_allow_html=True)
+st.markdown(
+    f'<div class="glass-card">'
+    f'<h3 style="text-align:center; margin:0; color:#d4af37;">🎯 Today\'s Target Time</h3>'
+    f'<div class="target-box"><span class="target-time">{daily_target:.3f} SEC</span></div>'
+    f'<p style="text-align:center; color:#ccc; font-size: 0.9rem; margin:0;">'
+    f'Win Rule: Stop at exact <b>{daily_target:.3f}s</b> or within <b>±0.001s</b> (<b>{min_win_time:.3f}s – {max_win_time:.3f}s</b>)!'
+    f'</p></div>',
+    unsafe_allow_html=True
+)
 
 # --- RENDER TIMER COMPONENT ---
 timer_value = timer_component(target=daily_target, today=today_ist, key="daily_timer")
@@ -378,16 +403,16 @@ if timer_value is not None:
     border_col = "#4CAF50" if is_qualifying_hit else "#ff9800"
     status_title = "🎯 WINNING ZONE HIT!" if is_qualifying_hit else "⏱️ Timer Stopped!"
     
-    st.markdown(f"""
-    <div class="glass-card" style="border-color: {border_col};">
-        <h3 style="text-align:center; color:{border_col}; margin-top:0;">{status_title}</h3>
-        <p style="text-align:center; font-family:monospace; font-size:1.15rem; margin-bottom:0;">
-            Stopped Time: <b>{stopped_time:.3f}s</b><br>
-            Target Time: <b>{daily_target:.3f}s</b><br>
-            Difference: <b style="color:#ffd700;">{difference:.3f}s</b>
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="glass-card" style="border-color: {border_col};">'
+        f'<h3 style="text-align:center; color:{border_col}; margin-top:0;">{status_title}</h3>'
+        f'<p style="text-align:center; font-family:monospace; font-size:1.15rem; margin-bottom:0;">'
+        f'Stopped Time: <b>{stopped_time:.3f}s</b><br>'
+        f'Target Time: <b>{daily_target:.3f}s</b><br>'
+        f'Difference: <b style="color:#ffd700;">{difference:.3f}s</b>'
+        f'</p></div>',
+        unsafe_allow_html=True
+    )
     
     if not st.session_state.entry_submitted:
         with st.form("submission_form"):
@@ -437,27 +462,27 @@ else:
     has_qualifying_winner = top_diff <= WIN_TOLERANCE
     
     if has_qualifying_winner:
-        st.markdown(f"""
-        <div class="glass-card" style="border-color: #ffd700; text-align:center;">
-            <div style="color:#ffd700; font-weight:bold; font-size:1.1rem;">👑 CURRENT WINNER (±0.001s QUALIFIED)</div>
-            <div style="font-size:1.5rem; font-weight:900; margin:6px 0;">@{top_user}</div>
-            <div style="font-family:monospace; color:#ccc;">
-                Stopped: <b>{top_elapsed:.3f}s</b> | Diff: <b style="color:#4CAF50;">{top_diff:.3f}s</b>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="glass-card" style="border-color: #ffd700; text-align:center;">'
+            f'<div style="color:#ffd700; font-weight:bold; font-size:1.1rem;">👑 CURRENT WINNER (±0.001s QUALIFIED)</div>'
+            f'<div style="font-size:1.5rem; font-weight:900; margin:6px 0;">@{top_user}</div>'
+            f'<div style="font-family:monospace; color:#ccc;">'
+            f'Stopped: <b>{top_elapsed:.3f}s</b> | Diff: <b style="color:#4CAF50;">{top_diff:.3f}s</b>'
+            f'</div></div>',
+            unsafe_allow_html=True
+        )
     else:
-        st.markdown(f"""
-        <div class="glass-card" style="border-color: #ff4444; text-align:center;">
-            <div style="color:#ff4444; font-weight:bold; font-size:1.1rem;">⏳ NO WINNER YET TODAY</div>
-            <div style="font-size:0.95rem; color:#ccc; margin:6px 0;">
-                To win, stop at exact <b>{daily_target:.3f}s</b> or within <b>±0.001s</b> (<b>{min_win_time:.3f}s – {max_win_time:.3f}s</b>).
-            </div>
-            <div style="font-family:monospace; font-size:0.85rem; color:#999;">
-                Closest so far: @{top_user} ({top_elapsed:.3f}s | Diff: {top_diff:.3f}s)
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="glass-card" style="border-color: #ff4444; text-align:center;">'
+            f'<div style="color:#ff4444; font-weight:bold; font-size:1.1rem;">⏳ NO WINNER YET TODAY</div>'
+            f'<div style="font-size:0.95rem; color:#ccc; margin:6px 0;">'
+            f'To win, stop at exact <b>{daily_target:.3f}s</b> or within <b>±0.001s</b> (<b>{min_win_time:.3f}s – {max_win_time:.3f}s</b>).'
+            f'</div>'
+            f'<div style="font-family:monospace; font-size:0.85rem; color:#999;">'
+            f'Closest so far: @{top_user} ({top_elapsed:.3f}s | Diff: {top_diff:.3f}s)'
+            f'</div></div>',
+            unsafe_allow_html=True
+        )
 
     # Show Winner Popup & WhatsApp Claim Button ONLY if #1 AND within 0.001s of target
     is_qualifying_winner = (
@@ -479,33 +504,34 @@ else:
         )
         wa_url = f"https://wa.me/{admin_wa}?text={urllib.parse.quote(wa_msg)}"
         
-        st.markdown(f"""
-        <div class="glass-card" style="border: 2px solid #25D366; background: #06210e; text-align:center;">
-            <h3 style="color:#4CAF50; margin-top:0;">🎉 CONGRATULATIONS @{top_user}!</h3>
-            <p style="font-size:0.95rem;">You hit the winning zone (<b>±0.001s</b>) and are <b>Rank #1</b>!</p>
-            <p style="font-family:monospace; font-size:0.9rem;">
-                Stopped: {top_elapsed:.3f}s | Target: {daily_target:.3f}s | Diff: {top_diff:.3f}s
-            </p>
-            <a href="{wa_url}" target="_blank" style="display:inline-block; background:#25D366; color:white; padding:12px 24px; border-radius:8px; text-decoration:none; font-weight:bold; margin-top:8px;">
-                💬 Claim Prize on WhatsApp
-            </a>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="glass-card" style="border: 2px solid #25D366; background: #06210e; text-align:center;">'
+            f'<h3 style="color:#4CAF50; margin-top:0;">🎉 CONGRATULATIONS @{top_user}!</h3>'
+            f'<p style="font-size:0.95rem;">You hit the winning zone (<b>±0.001s</b>) and are <b>Rank #1</b>!</p>'
+            f'<p style="font-family:monospace; font-size:0.9rem;">'
+            f'Stopped: {top_elapsed:.3f}s | Target: {daily_target:.3f}s | Diff: {top_diff:.3f}s'
+            f'</p>'
+            f'<a href="{wa_url}" target="_blank" style="display:inline-block; background:#25D366; color:white; padding:12px 24px; border-radius:8px; text-decoration:none; font-weight:bold; margin-top:8px;">'
+            f'💬 Claim Prize on WhatsApp'
+            f'</a></div>',
+            unsafe_allow_html=True
+        )
 
-    # Render Top 50 Table
-    rows_html = '<div class="glass-card" style="padding:5px 0;">'
+    # Render Top 50 Table (NO LEADING SPACES so Markdown never creates a code block!)
+    rows_list = ['<div class="glass-card" style="padding:5px 0;">']
     for idx, (insta, elapsed_val, diff_val, created_at) in enumerate(leaderboard):
         rank = idx + 1
         medal = "🥇" if rank == 1 else "🥈" if rank == 2 else "🥉" if rank == 3 else f"#{rank}"
         rank_class = f"rank-{rank}" if rank <= 3 else ""
         diff_color = "#4CAF50" if diff_val <= WIN_TOLERANCE else "#d4af37"
-        rows_html += f"""
-        <div class="leaderboard-row">
-            <div class="{rank_class}" style="width:18%;">{medal}</div>
-            <div style="width:38%; overflow:hidden; text-overflow:ellipsis;">@{insta}</div>
-            <div style="width:22%; text-align:right; color:#aaa;">{elapsed_val:.3f}s</div>
-            <div style="width:22%; text-align:right; color:{diff_color};">Δ {diff_val:.3f}s</div>
-        </div>
-        """
-    rows_html += '</div>'
-    st.markdown(rows_html, unsafe_allow_html=True)
+        row_str = (
+            f'<div class="leaderboard-row">'
+            f'<div class="{rank_class}" style="width:16%;">{medal}</div>'
+            f'<div style="width:42%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">@{insta}</div>'
+            f'<div style="width:21%; text-align:right; color:#aaa;">{elapsed_val:.3f}s</div>'
+            f'<div style="width:21%; text-align:right; color:{diff_color};">Δ {diff_val:.3f}s</div>'
+            f'</div>'
+        )
+        rows_list.append(row_str)
+    rows_list.append('</div>')
+    st.markdown("".join(rows_list), unsafe_allow_html=True)
