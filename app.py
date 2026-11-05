@@ -103,7 +103,6 @@ HTML_CODE = """<!DOCTYPE html>
   <div id="status-msg"></div>
 
   <script>
-    // Direct Streamlit PostMessage Protocol (No external CDN required!)
     function sendMessageToStreamlitClient(type, data) {
       const outData = Object.assign({
         isStreamlitMessage: true,
@@ -163,8 +162,11 @@ HTML_CODE = """<!DOCTYPE html>
     function formatTime(sec) {
       const s = Math.max(0, sec);
       const whole = Math.floor(s).toString().padStart(2, '0');
-      const ms = Math.floor((s - Math.floor(s)) * 1000).toString().padStart(3, '0');
-      return `${whole}.${ms}`;
+      const ms = Math.round((s - Math.floor(s)) * 1000);
+      if (ms === 1000) {
+        return `${(Math.floor(s) + 1).toString().padStart(2, '0')}.000`;
+      }
+      return `${whole}.${ms.toString().padStart(3, '0')}`;
     }
 
     function updateTimer() {
@@ -197,7 +199,7 @@ HTML_CODE = """<!DOCTYPE html>
       startBtn.disabled = true;
       stopBtn.disabled = false;
       beepPlayed = false;
-      statusMsg.innerText = "Timer running... Click STOP at " + target.toFixed(3) + "s!";
+      statusMsg.innerText = "Timer running... Stop at exact " + target.toFixed(3) + "s!";
       statusMsg.style.color = "#d4af37";
       requestAnimationFrame(updateTimer);
     };
@@ -315,6 +317,7 @@ st.markdown("""
 # --- INIT DATABASE & TIMEZONE ---
 IST = ZoneInfo('Asia/Kolkata')
 today_ist = datetime.now(IST).strftime('%Y-%m-%d')
+WIN_TOLERANCE = 0.001  # Exact target (0.000) or +/- 0.001s
 
 def init_db():
     conn = sqlite3.connect('giveaway.db', check_same_thread=False)
@@ -340,6 +343,8 @@ def get_daily_target(date_str):
     return new_target
 
 daily_target = get_daily_target(today_ist)
+min_win_time = daily_target - WIN_TOLERANCE
+max_win_time = daily_target + WIN_TOLERANCE
 
 # --- UI HEADER ---
 st.markdown("<p class='brand-title'>@oyye_rider <span class='gold-highlight'>Giveaway</span></p>", unsafe_allow_html=True)
@@ -352,7 +357,7 @@ st.markdown(f"""
         <span class="target-time">{daily_target:.3f} SEC</span>
     </div>
     <p style='text-align:center; color:#ccc; font-size: 0.9rem; margin:0;'>
-        Click <b>START TIMER</b> and manually stop it as close as possible to <b>{daily_target:.3f}s</b>!
+        Win Rule: Stop at exact <b>{daily_target:.3f}s</b> or within <b>±0.001s</b> (<b>{min_win_time:.3f}s – {max_win_time:.3f}s</b>)!
     </p>
 </div>
 """, unsafe_allow_html=True)
@@ -366,12 +371,16 @@ if "entry_submitted_day" not in st.session_state or st.session_state.entry_submi
     st.session_state.entry_submitted_day = today_ist
 
 if timer_value is not None:
-    stopped_time = float(timer_value)
-    difference = abs(stopped_time - daily_target)
+    stopped_time = round(float(timer_value), 3)
+    difference = round(abs(stopped_time - daily_target), 3)
+    is_qualifying_hit = difference <= WIN_TOLERANCE
+    
+    border_col = "#4CAF50" if is_qualifying_hit else "#ff9800"
+    status_title = "🎯 WINNING ZONE HIT!" if is_qualifying_hit else "⏱️ Timer Stopped!"
     
     st.markdown(f"""
-    <div class="glass-card" style="border-color: #4CAF50;">
-        <h3 style="text-align:center; color:#4CAF50; margin-top:0;">⏱️ Timer Stopped!</h3>
+    <div class="glass-card" style="border-color: {border_col};">
+        <h3 style="text-align:center; color:{border_col}; margin-top:0;">{status_title}</h3>
         <p style="text-align:center; font-family:monospace; font-size:1.15rem; margin-bottom:0;">
             Stopped Time: <b>{stopped_time:.3f}s</b><br>
             Target Time: <b>{daily_target:.3f}s</b><br>
@@ -408,12 +417,12 @@ if timer_value is not None:
                         st.session_state.entry_submitted = True
                         st.session_state.current_user = clean_user
 
-# --- LEADERBOARD & PROVISIONAL WINNER LOGIC ---
+# --- LEADERBOARD & WINNER LOGIC ---
 st.markdown("### 🏆 Today's Top 50 Leaderboard")
 
 c = conn.cursor()
 c.execute("""
-    SELECT instagram, elapsed, ABS(elapsed - ?) AS diff, created_at 
+    SELECT instagram, elapsed, ROUND(ABS(elapsed - ?), 3) AS diff, created_at 
     FROM entries 
     WHERE day = ? 
     ORDER BY diff ASC, created_at ASC 
@@ -422,34 +431,46 @@ c.execute("""
 leaderboard = c.fetchall()
 
 if not leaderboard:
-    st.info("No entries yet for today. Stop the timer above to become #1!")
+    st.info("No entries yet for today. Stop the timer at the exact target (±0.001s) to win!")
 else:
     top_user, top_elapsed, top_diff, top_time = leaderboard[0]
+    has_qualifying_winner = top_diff <= WIN_TOLERANCE
     
-    st.markdown(f"""
-    <div class="glass-card" style="border-color: #ffd700; text-align:center;">
-        <div style="color:#ffd700; font-weight:bold; font-size:1.1rem;">👑 CURRENT PROVISIONAL LEADER</div>
-        <div style="font-size:1.5rem; font-weight:900; margin:6px 0;">@{top_user}</div>
-        <div style="font-family:monospace; color:#ccc;">
-            Stopped: <b>{top_elapsed:.3f}s</b> | Diff: <b style="color:#4CAF50;">{top_diff:.3f}s</b>
+    if has_qualifying_winner:
+        st.markdown(f"""
+        <div class="glass-card" style="border-color: #ffd700; text-align:center;">
+            <div style="color:#ffd700; font-weight:bold; font-size:1.1rem;">👑 CURRENT WINNER (±0.001s QUALIFIED)</div>
+            <div style="font-size:1.5rem; font-weight:900; margin:6px 0;">@{top_user}</div>
+            <div style="font-family:monospace; color:#ccc;">
+                Stopped: <b>{top_elapsed:.3f}s</b> | Diff: <b style="color:#4CAF50;">{top_diff:.3f}s</b>
+            </div>
         </div>
-        <div style="font-size:0.75rem; color:#999; margin-top:6px;">
-            *Provisional leader until 11:59:59 PM IST. Final winner is confirmed at the end of the day.
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown(f"""
+        <div class="glass-card" style="border-color: #ff4444; text-align:center;">
+            <div style="color:#ff4444; font-weight:bold; font-size:1.1rem;">⏳ NO WINNER YET TODAY</div>
+            <div style="font-size:0.95rem; color:#ccc; margin:6px 0;">
+                To win, stop at exact <b>{daily_target:.3f}s</b> or within <b>±0.001s</b> (<b>{min_win_time:.3f}s – {max_win_time:.3f}s</b>).
+            </div>
+            <div style="font-family:monospace; font-size:0.85rem; color:#999;">
+                Closest so far: @{top_user} ({top_elapsed:.3f}s | Diff: {top_diff:.3f}s)
+            </div>
         </div>
-    </div>
-    """, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
 
-    # Show Winner Popup & WhatsApp Claim Button ONLY to current #1 participant
-    is_provisional_winner = (
+    # Show Winner Popup & WhatsApp Claim Button ONLY if #1 AND within 0.001s of target
+    is_qualifying_winner = (
+        has_qualifying_winner and
         st.session_state.get("entry_submitted") and 
         st.session_state.get("current_user") == top_user
     )
 
-    if is_provisional_winner:
+    if is_qualifying_winner:
         st.balloons()
         admin_wa = st.secrets.get("ADMIN_WHATSAPP", "910000000000")
         wa_msg = (
-            f"Hi @oyye_rider Admin! I am currently Rank #1 (Provisional Winner) in the Daily Timer Giveaway.\n\n"
+            f"Hi @oyye_rider Admin! I hit the winning target in the Daily Timer Giveaway!\n\n"
             f"Instagram: @{top_user}\n"
             f"Stopped Time: {top_elapsed:.3f}s\n"
             f"Daily Target: {daily_target:.3f}s\n"
@@ -461,12 +482,12 @@ else:
         st.markdown(f"""
         <div class="glass-card" style="border: 2px solid #25D366; background: #06210e; text-align:center;">
             <h3 style="color:#4CAF50; margin-top:0;">🎉 CONGRATULATIONS @{top_user}!</h3>
-            <p style="font-size:0.95rem;">You are currently <b>Rank #1</b> on today's leaderboard!</p>
+            <p style="font-size:0.95rem;">You hit the winning zone (<b>±0.001s</b>) and are <b>Rank #1</b>!</p>
             <p style="font-family:monospace; font-size:0.9rem;">
                 Stopped: {top_elapsed:.3f}s | Target: {daily_target:.3f}s | Diff: {top_diff:.3f}s
             </p>
             <a href="{wa_url}" target="_blank" style="display:inline-block; background:#25D366; color:white; padding:12px 24px; border-radius:8px; text-decoration:none; font-weight:bold; margin-top:8px;">
-                💬 Contact Admin on WhatsApp
+                💬 Claim Prize on WhatsApp
             </a>
         </div>
         """, unsafe_allow_html=True)
@@ -477,22 +498,14 @@ else:
         rank = idx + 1
         medal = "🥇" if rank == 1 else "🥈" if rank == 2 else "🥉" if rank == 3 else f"#{rank}"
         rank_class = f"rank-{rank}" if rank <= 3 else ""
+        diff_color = "#4CAF50" if diff_val <= WIN_TOLERANCE else "#d4af37"
         rows_html += f"""
         <div class="leaderboard-row">
             <div class="{rank_class}" style="width:18%;">{medal}</div>
             <div style="width:38%; overflow:hidden; text-overflow:ellipsis;">@{insta}</div>
             <div style="width:22%; text-align:right; color:#aaa;">{elapsed_val:.3f}s</div>
-            <div style="width:22%; text-align:right; color:#d4af37;">Δ {diff_val:.3f}s</div>
+            <div style="width:22%; text-align:right; color:{diff_color};">Δ {diff_val:.3f}s</div>
         </div>
         """
     rows_html += '</div>'
     st.markdown(rows_html, unsafe_allow_html=True)
-
-# --- FAIRNESS & TECHNICAL TRANSPARENCY ---
-with st.expander("ℹ️ Rules, Fairness & Technical Notes"):
-    st.caption("""
-    - **1 Attempt Per Day:** Locked immediately when you press START TIMER using browser LocalStorage. Refreshing the page after starting locks the attempt for the day.
-    - **Client-Side Limits:** Because this is a public web challenge without login, clearing browser data or switching devices can bypass LocalStorage limits, and browser timers run on the client device.
-    - **Instagram Follow:** Please follow @oyye_rider on Instagram. Follow status is checked manually by the admin when verifying the daily winner.
-    - **Database Note:** SQLite on Streamlit Community Cloud is stored on the container disk and may reset if the cloud server restarts or sleeps.
-    """)
