@@ -1,296 +1,347 @@
+
 <!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8">
 
-<meta name="viewport"
-content="width=device-width, initial-scale=1">
-
 <script src="https://cdn.jsdelivr.net/npm/streamlit-component-lib@1.4.0/dist/streamlit.min.js"></script>
 
 <style>
+* {
+    box-sizing: border-box;
+}
+
 body {
     margin: 0;
-    background: #111;
+    padding: 10px;
+    background: transparent;
     color: white;
     font-family: Arial, sans-serif;
 }
 
-.container {
-    background: #151515;
-    border: 1px solid #333;
-    border-radius: 16px;
-    padding: 18px;
+.panel {
+    background: linear-gradient(145deg, #181818, #090909);
+    border: 1px solid #444;
+    border-radius: 18px;
+    padding: 20px 14px;
     text-align: center;
 }
 
-#display {
-    font-size: clamp(52px, 13vw, 86px);
+.timer {
+    font-size: clamp(48px, 12vw, 76px);
     font-weight: 900;
+    color: #ffe18a;
     font-variant-numeric: tabular-nums;
+    margin: 15px 0;
 }
 
-#status {
-    color: #ffb3b3;
-    margin-bottom: 10px;
+.status {
+    color: #ccc;
+    min-height: 24px;
+    margin-bottom: 15px;
 }
 
 button {
-    border: none;
+    border: 0;
     border-radius: 12px;
-    padding: 14px;
-    font-size: 20px;
+    padding: 14px 18px;
+    font-size: 17px;
     font-weight: bold;
-    width: 48%;
+    cursor: pointer;
+    width: 100%;
+    margin: 6px 0;
+}
+
+.start {
+    background: #20c767;
+    color: #061b0d;
+}
+
+.stop {
+    background: #ff3838;
     color: white;
 }
 
-#start {
-    background: #16803c;
-}
-
-#stop {
-    background: #b32020;
-}
-
-#submit {
-    width: 95%;
-    background: #1768bd;
+.submit {
+    background: #ffcf4a;
+    color: #111;
 }
 
 button:disabled {
     opacity: 0.4;
+    cursor: not-allowed;
 }
 
 input {
-    width: 90%;
-    padding: 12px;
+    width: 100%;
+    padding: 14px;
     font-size: 17px;
     border-radius: 10px;
-    margin: 10px 0;
-    background: #222;
-    border: 1px solid #555;
+    border: 1px solid #666;
+    background: #111;
     color: white;
+    margin: 8px 0;
 }
 
-#submitBox {
-    display: none;
+.hidden {
+    display: none !important;
+}
+
+.note {
+    font-size: 12px;
+    color: #aaa;
+    margin-top: 10px;
 }
 </style>
 </head>
 
 <body>
 
-<div class="container">
+<div class="panel">
 
-    <div id="status">READY</div>
+    <div style="font-size:14px;color:#ccc">
+        STOP AS CLOSE AS POSSIBLE
+    </div>
 
-    <div id="display">00.000</div>
+    <div id="timer" class="timer">0.000</div>
 
-    <p>SECONDS</p>
+    <div id="status" class="status">
+        Ready? Press START
+    </div>
 
-    <button id="start">START</button>
+    <button id="startBtn" class="start">
+        ▶ START TIMER
+    </button>
 
-    <button id="stop" disabled>STOP</button>
+    <button id="stopBtn" class="stop hidden">
+        ■ STOP TIMER
+    </button>
 
-    <div id="result"></div>
+    <div id="usernameBox" class="hidden">
 
-    <div id="submitBox">
-
-        <p>Timer stopped! Enter Instagram ID:</p>
+        <div style="font-size:18px;margin:12px 0">
+            Submit your Instagram ID
+        </div>
 
         <input
             id="instagram"
-            placeholder="Instagram username"
+            type="text"
+            placeholder="@your_instagram_id"
             maxlength="30"
+            autocomplete="off"
         >
 
-        <button id="submit">SUBMIT ENTRY</button>
+        <button id="submitBtn" class="submit">
+            🎁 SUBMIT ENTRY
+        </button>
 
     </div>
 
-    <div id="usedMessage"
-    style="display:none;color:#ff7777">
-        You have already played today.
-        Come back tomorrow.
+    <div id="playedMsg" class="hidden">
+        <p style="color:#ff7777;font-weight:bold">
+            You have already used the timer today on this browser/device.
+        </p>
+    </div>
+
+    <div class="note">
+        One attempt per day per browser/device.
     </div>
 
 </div>
 
 <script>
-const target = Number(Streamlit.args.target);
-const day = String(Streamlit.args.day);
+const timerEl = document.getElementById("timer");
+const statusEl = document.getElementById("status");
+const startBtn = document.getElementById("startBtn");
+const stopBtn = document.getElementById("stopBtn");
+const usernameBox = document.getElementById("usernameBox");
+const instagramInput = document.getElementById("instagram");
+const submitBtn = document.getElementById("submitBtn");
+const playedMsg = document.getElementById("playedMsg");
 
-const storageKey = "giveaway_played_" + day;
-
-let startTime = null;
+let target = 15;
+let day = "";
+let running = false;
 let stopped = false;
+let startTime = 0;
 let elapsed = 0;
-let animation = null;
+let rafId = null;
 let beeped = false;
+let attemptToken = "";
 
-const display = document.getElementById("display");
-const status = document.getElementById("status");
+function lockKey() {
+    return "giveaway_played_" + day;
+}
 
-const startBtn = document.getElementById("start");
-const stopBtn = document.getElementById("stop");
+function formatTime(value) {
+    return value.toFixed(3);
+}
 
-const result = document.getElementById("result");
-const submitBox = document.getElementById("submitBox");
+function updateTimer() {
+    if (!running) return;
 
+    elapsed = (performance.now() - startTime) / 1000;
+    timerEl.textContent = formatTime(elapsed);
 
-function beep() {
+    if (!beeped && elapsed >= target) {
+        beeped = true;
+        statusEl.textContent = "🎯 TARGET! STOP NOW!";
+        playBeep();
+    }
 
+    rafId = requestAnimationFrame(updateTimer);
+}
+
+function playBeep() {
     try {
+        const AudioContext =
+            window.AudioContext || window.webkitAudioContext;
 
-        const audio = new (
-            window.AudioContext ||
-            window.webkitAudioContext
-        )();
+        const ctx = new AudioContext();
+        const oscillator = ctx.createOscillator();
+        const gain = ctx.createGain();
 
-        const oscillator = audio.createOscillator();
-        const gain = audio.createGain();
-
-        oscillator.frequency.value = 880;
+        oscillator.type = "sine";
+        oscillator.frequency.value = 1000;
         gain.gain.value = 0.2;
 
         oscillator.connect(gain);
-        gain.connect(audio.destination);
+        gain.connect(ctx.destination);
 
         oscillator.start();
 
         setTimeout(() => {
             oscillator.stop();
-            audio.close();
-        }, 250);
+            ctx.close();
+        }, 500);
 
-    } catch (e) {}
+    } catch (e) {
+        console.log("Audio unavailable", e);
+    }
 }
 
+function refreshHeight() {
+    Streamlit.setFrameHeight(
+        document.documentElement.scrollHeight + 20
+    );
+}
 
-function timerLoop() {
+function startTimer() {
+    if (running || stopped) return;
 
-    if (startTime === null || stopped) {
+    // Reserve the daily attempt when the user starts.
+    try {
+        if (localStorage.getItem(lockKey())) {
+            startBtn.classList.add("hidden");
+            playedMsg.classList.remove("hidden");
+            statusEl.textContent = "Already used today.";
+            refreshHeight();
+            return;
+        }
+
+        localStorage.setItem(lockKey(), "1");
+
+    } catch (e) {
+        console.log("LocalStorage unavailable");
+    }
+
+    running = true;
+    startTime = performance.now();
+    elapsed = 0;
+    beeped = false;
+
+    startBtn.classList.add("hidden");
+    stopBtn.classList.remove("hidden");
+
+    statusEl.textContent = "Timer running...";
+    rafId = requestAnimationFrame(updateTimer);
+
+    refreshHeight();
+}
+
+function stopTimer() {
+    if (!running) return;
+
+    running = false;
+    stopped = true;
+
+    if (rafId) {
+        cancelAnimationFrame(rafId);
+    }
+
+    elapsed = (performance.now() - startTime) / 1000;
+    timerEl.textContent = formatTime(elapsed);
+
+    stopBtn.classList.add("hidden");
+    usernameBox.classList.remove("hidden");
+
+    statusEl.textContent = "Stopped! Enter your Instagram ID.";
+
+    refreshHeight();
+}
+
+function submitEntry() {
+    if (!stopped) return;
+
+    let username = instagramInput.value
+        .trim()
+        .replace(/^@+/, "")
+        .toLowerCase();
+
+    if (!/^[a-z0-9._]{2,30}$/.test(username)) {
+        statusEl.textContent = "Please enter a valid Instagram username.";
         return;
     }
 
-    const seconds =
-        (performance.now() - startTime) / 1000;
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Submitting...";
 
-    display.textContent = seconds.toFixed(3);
+    Streamlit.setComponentValue({
+        submitted: true,
+        instagram: username,
+        elapsed: Number(elapsed.toFixed(3)),
+        token: attemptToken
+    });
 
-    if (!beeped && seconds >= target) {
+    statusEl.textContent = "Entry submitted!";
+}
 
-        beeped = true;
+startBtn.addEventListener("click", startTimer);
+stopBtn.addEventListener("click", stopTimer);
+submitBtn.addEventListener("click", submitEntry);
 
-        beep();
+function onRender(event) {
+    const args = event.detail.args || {};
 
-        status.textContent = "🎯 TARGET! STOP NOW";
+    target = Number(args.target || 15);
+    day = String(args.day || "");
 
-        status.style.color = "#ffe066";
+    attemptToken = day + "_" +
+        Date.now().toString() + "_" +
+        Math.random().toString(36).slice(2);
+
+    timerEl.textContent = "0.000";
+
+    try {
+        if (localStorage.getItem(lockKey())) {
+            startBtn.classList.add("hidden");
+            playedMsg.classList.remove("hidden");
+            statusEl.textContent = "Already used today.";
+        }
+    } catch (e) {
+        console.log("LocalStorage unavailable");
     }
 
-    animation = requestAnimationFrame(timerLoop);
+    refreshHeight();
 }
 
-
-if (localStorage.getItem(storageKey)) {
-
-    startBtn.disabled = true;
-    stopBtn.disabled = true;
-
-    document.getElementById(
-        "usedMessage"
-    ).style.display = "block";
-
-    status.textContent = "ALREADY PLAYED";
-
-} else {
-
-    startBtn.onclick = function() {
-
-        if (startTime !== null) {
-            return;
-        }
-
-        startTime = performance.now();
-
-        status.textContent = "RUNNING";
-
-        startBtn.disabled = true;
-
-        stopBtn.disabled = false;
-
-        animation = requestAnimationFrame(timerLoop);
-    };
-
-
-    stopBtn.onclick = function() {
-
-        if (startTime === null || stopped) {
-            return;
-        }
-
-        stopped = true;
-
-        cancelAnimationFrame(animation);
-
-        elapsed =
-            (performance.now() - startTime) / 1000;
-
-        display.textContent = elapsed.toFixed(3);
-
-        status.textContent = "STOPPED";
-
-        stopBtn.disabled = true;
-
-        result.textContent =
-            "Stopped time: " + elapsed.toFixed(3) + " sec";
-
-        submitBox.style.display = "block";
-
-        Streamlit.setFrameHeight(
-            document.body.scrollHeight
-        );
-    };
-
-
-    document.getElementById("submit").onclick = function() {
-
-        const instagram = document.getElementById(
-            "instagram"
-        ).value.trim().replace(/^@/, "").toLowerCase();
-
-        if (instagram.length < 2) {
-
-            result.textContent =
-                "Please enter a valid Instagram ID.";
-
-            return;
-        }
-
-        localStorage.setItem(storageKey, "1");
-
-        Streamlit.setComponentValue({
-            submitted: true,
-            elapsed: elapsed,
-            instagram: instagram
-        });
-
-        document.getElementById("submit").disabled = true;
-
-        result.textContent = "Submitting...";
-    };
-
-}
-
-
-Streamlit.setComponentReady();
-
-Streamlit.setFrameHeight(
-    document.body.scrollHeight
+Streamlit.events.addEventListener(
+    Streamlit.RENDER_EVENT,
+    onRender
 );
 
+Streamlit.setComponentReady();
+Streamlit.setFrameHeight(450);
 </script>
 
 </body>
