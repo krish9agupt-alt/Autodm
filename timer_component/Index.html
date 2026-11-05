@@ -1,180 +1,27 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="https://cdn.jsdelivr.net/npm/streamlit-component-lib@1.3.0/dist/streamlit.js"></script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Oyye Rider | Daily Timer Challenge</title>
   <style>
-    body {
-      background: transparent;
-      color: white;
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      text-align: center;
+    body, html {
       margin: 0;
-      padding: 10px;
-    }
-    #timer-display {
-      font-size: 4.5rem;
-      font-weight: 900;
-      color: #d4af37; /* Gold */
-      font-family: 'Courier New', Courier, monospace;
-      text-shadow: 0 0 15px rgba(212, 175, 55, 0.6);
-      margin-bottom: 25px;
-      letter-spacing: 2px;
-    }
-    .btn-container {
-      display: flex;
-      flex-direction: column;
-      gap: 15px;
-      align-items: center;
-    }
-    button {
+      padding: 0;
       width: 100%;
-      max-width: 300px;
-      padding: 18px 20px;
-      font-size: 1.2rem;
-      border-radius: 12px;
-      border: 1px solid #d4af37;
-      cursor: pointer;
-      font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      transition: all 0.2s;
+      height: 100%;
+      overflow: hidden;
+      background-color: #050505;
     }
-    #start-btn {
-      background: linear-gradient(45deg, #111, #333);
-      color: #d4af37;
-    }
-    #start-btn:active { background: #222; }
-    
-    #stop-btn {
-      background: linear-gradient(45deg, #cc0000, #880000);
-      color: white;
-      box-shadow: 0 0 10px rgba(204, 0, 0, 0.5);
-    }
-    #stop-btn:active { background: linear-gradient(45deg, #ff0000, #aa0000); }
-
-    button:disabled {
-      opacity: 0.4;
-      cursor: not-allowed;
-      background: #222;
-      border-color: #444;
-      box-shadow: none;
-      color: #666;
-    }
-    #status-msg {
-      margin-top: 15px;
-      font-size: 0.9rem;
-      color: #ff4444;
+    iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
     }
   </style>
 </head>
 <body>
-  <div id="timer-display">00.000</div>
-  <div class="btn-container">
-    <button id="start-btn">START TIMER</button>
-    <button id="stop-btn" disabled>STOP TIMER</button>
-  </div>
-  <div id="status-msg"></div>
-
-  <script>
-    let target = 10;
-    let today = "";
-    let startTime = 0;
-    let isRunning = false;
-    let beepPlayed = false;
-
-    const display = document.getElementById("timer-display");
-    const startBtn = document.getElementById("start-btn");
-    const stopBtn = document.getElementById("stop-btn");
-    const statusMsg = document.getElementById("status-msg");
-
-    // Initialize AudioContext for the beep
-    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-
-    function playBeep() {
-      const osc = audioCtx.createOscillator();
-      const gainNode = audioCtx.createGain();
-      osc.connect(gainNode);
-      gainNode.connect(audioCtx.destination);
-      osc.type = 'sine';
-      osc.frequency.value = 800;
-      gainNode.gain.setValueAtTime(1, audioCtx.currentTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
-      osc.start(audioCtx.currentTime);
-      osc.stop(audioCtx.currentTime + 0.3);
-    }
-
-    function updateTimer() {
-      if (!isRunning) return;
-      const now = performance.now();
-      const elapsed = (now - startTime) / 1000;
-      display.innerText = elapsed.toFixed(3);
-
-      if (elapsed >= target && !beepPlayed) {
-        playBeep();
-        beepPlayed = true;
-      }
-      requestAnimationFrame(updateTimer);
-    }
-
-    startBtn.onclick = () => {
-      if (audioCtx.state === 'suspended') audioCtx.resume();
-      localStorage.setItem(`started_${today}`, "true");
-      startTime = performance.now();
-      isRunning = true;
-      startBtn.disabled = true;
-      stopBtn.disabled = false;
-      beepPlayed = false;
-      requestAnimationFrame(updateTimer);
-    };
-
-    stopBtn.onclick = () => {
-      isRunning = false;
-      stopBtn.disabled = true;
-      const now = performance.now();
-      const elapsed = (now - startTime) / 1000;
-      display.innerText = Math.abs(elapsed).toFixed(3);
-      
-      // Save local attempt to prevent retries
-      localStorage.setItem(`attempt_${today}`, elapsed.toString());
-      
-      // Send value back to Python
-      Streamlit.setComponentValue(elapsed);
-    };
-
-    function onRender(event) {
-      const args = event.detail.args;
-      target = args.target;
-      today = args.today;
-
-      const savedAttempt = localStorage.getItem(`attempt_${today}`);
-      const hasStarted = localStorage.getItem(`started_${today}`);
-
-      if (savedAttempt) {
-        // User already played today
-        display.innerText = parseFloat(savedAttempt).toFixed(3);
-        startBtn.disabled = true;
-        stopBtn.disabled = true;
-        
-        // Prevent infinite loop by checking if we already sent the value this session
-        if (!window.sentValue) {
-           Streamlit.setComponentValue(parseFloat(savedAttempt));
-           window.sentValue = true;
-        }
-      } else if (hasStarted && !isRunning) {
-        // Anti-cheat: User started the timer and refreshed the page to get another try
-        display.innerText = "LOCKED";
-        display.style.color = "#ff4444";
-        startBtn.disabled = true;
-        stopBtn.disabled = true;
-        statusMsg.innerText = "Attempt locked due to page refresh during timer.";
-      }
-      Streamlit.setFrameHeight(280);
-    }
-
-    Streamlit.events.addEventListener(Streamlit.RENDER_EVENT, onRender);
-    Streamlit.setComponentReady();
-  </script>
+  <!-- ?embed=true lagane se Streamlit ke saare icons gayab ho jaate hain -->
+  <iframe src="https://givway.streamlit.app/?embed=true" allow="autoplay"></iframe>
 </body>
 </html>
