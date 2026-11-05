@@ -1,36 +1,279 @@
 import streamlit as st
 import streamlit.components.v1 as components
 import sqlite3
-import pytz
+from zoneinfo import ZoneInfo
 from datetime import datetime
 import random
 import urllib.parse
 import re
-import os
+from pathlib import Path
 
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="Oyye Rider | Daily Timer Challenge", page_icon="⏱️", layout="centered")
 
+# --- AUTO-CREATE BULLETPROOF TIMER COMPONENT (ZERO EXTERNAL CDN) ---
+COMPONENT_DIR = Path(__file__).parent / "timer_component_v2"
+COMPONENT_DIR.mkdir(exist_ok=True)
+INDEX_HTML = COMPONENT_DIR / "index.html"
+
+HTML_CODE = """<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+    body {
+      background: transparent;
+      color: white;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      text-align: center;
+      margin: 0;
+      padding: 10px 5px;
+      overflow: hidden;
+    }
+    #timer-display {
+      font-size: 4.2rem;
+      font-weight: 900;
+      color: #d4af37;
+      font-family: 'Courier New', Courier, monospace;
+      text-shadow: 0 0 18px rgba(212, 175, 55, 0.7);
+      margin-bottom: 20px;
+      letter-spacing: 2px;
+      background: #0a0000;
+      border: 2px solid #330000;
+      border-radius: 14px;
+      padding: 12px 10px;
+    }
+    .btn-container {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      align-items: center;
+    }
+    button {
+      width: 100%;
+      max-width: 320px;
+      padding: 16px 20px;
+      font-size: 1.25rem;
+      border-radius: 12px;
+      border: 1px solid #d4af37;
+      cursor: pointer;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      transition: transform 0.1s, opacity 0.2s;
+    }
+    button:active:not(:disabled) {
+      transform: scale(0.98);
+    }
+    #start-btn {
+      background: linear-gradient(45deg, #1a1a1a, #333333);
+      color: #d4af37;
+      box-shadow: 0 4px 12px rgba(212, 175, 55, 0.2);
+    }
+    #stop-btn {
+      background: linear-gradient(45deg, #cc0000, #880000);
+      color: white;
+      box-shadow: 0 0 15px rgba(204, 0, 0, 0.6);
+    }
+    button:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+      background: #1a1a1a;
+      border-color: #444;
+      box-shadow: none;
+      color: #666;
+    }
+    #status-msg {
+      margin-top: 12px;
+      font-size: 0.9rem;
+      color: #ff5555;
+      font-weight: 600;
+      min-height: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div id="timer-display">00.000</div>
+  <div class="btn-container">
+    <button id="start-btn">START TIMER</button>
+    <button id="stop-btn" disabled>STOP TIMER</button>
+  </div>
+  <div id="status-msg"></div>
+
+  <script>
+    // Direct Streamlit PostMessage Protocol (No external CDN required!)
+    function sendMessageToStreamlitClient(type, data) {
+      const outData = Object.assign({
+        isStreamlitMessage: true,
+        type: type,
+      }, data);
+      window.parent.postMessage(outData, "*");
+    }
+
+    function setComponentReady() {
+      sendMessageToStreamlitClient("streamlit:componentReady", {apiVersion: 1});
+    }
+
+    function setFrameHeight(height) {
+      sendMessageToStreamlitClient("streamlit:setFrameHeight", {height: height});
+    }
+
+    function setComponentValue(value) {
+      sendMessageToStreamlitClient("streamlit:setComponentValue", {value: value});
+    }
+
+    let target = 10;
+    let today = "";
+    let startTime = 0;
+    let isRunning = false;
+    let beepPlayed = false;
+    let audioCtx = null;
+    let initialized = false;
+
+    const display = document.getElementById("timer-display");
+    const startBtn = document.getElementById("start-btn");
+    const stopBtn = document.getElementById("stop-btn");
+    const statusMsg = document.getElementById("status-msg");
+
+    function playBeep() {
+      try {
+        if (!audioCtx) {
+          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (audioCtx.state === 'suspended') {
+          audioCtx.resume();
+        }
+        const osc = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        osc.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        osc.type = 'sine';
+        osc.frequency.value = 880;
+        gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.25);
+        osc.start(audioCtx.currentTime);
+        osc.stop(audioCtx.currentTime + 0.25);
+      } catch (e) {
+        console.warn("Audio error:", e);
+      }
+    }
+
+    function formatTime(sec) {
+      const s = Math.max(0, sec);
+      const whole = Math.floor(s).toString().padStart(2, '0');
+      const ms = Math.floor((s - Math.floor(s)) * 1000).toString().padStart(3, '0');
+      return `${whole}.${ms}`;
+    }
+
+    function updateTimer() {
+      if (!isRunning) return;
+      const now = performance.now();
+      const elapsed = (now - startTime) / 1000;
+      display.innerText = formatTime(elapsed);
+
+      if (elapsed >= target && !beepPlayed) {
+        playBeep();
+        beepPlayed = true;
+      }
+      requestAnimationFrame(updateTimer);
+    }
+
+    startBtn.onclick = () => {
+      if (isRunning) return;
+      try {
+        if (!audioCtx) {
+          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (audioCtx.state === 'suspended') {
+          audioCtx.resume();
+        }
+      } catch (e) {}
+
+      localStorage.setItem(`oyye_started_${today}`, "true");
+      startTime = performance.now();
+      isRunning = true;
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+      beepPlayed = false;
+      statusMsg.innerText = "Timer running... Click STOP at " + target.toFixed(3) + "s!";
+      statusMsg.style.color = "#d4af37";
+      requestAnimationFrame(updateTimer);
+    };
+
+    stopBtn.onclick = () => {
+      if (!isRunning) return;
+      isRunning = false;
+      stopBtn.disabled = true;
+      const now = performance.now();
+      const elapsed = Number(((now - startTime) / 1000).toFixed(3));
+      display.innerText = formatTime(elapsed);
+      
+      localStorage.setItem(`oyye_attempt_${today}`, elapsed.toString());
+      statusMsg.innerText = "Timer stopped! Scroll down to submit your Instagram username.";
+      statusMsg.style.color = "#4CAF50";
+      
+      setComponentValue(elapsed);
+    };
+
+    window.addEventListener("message", function(event) {
+      if (event.data.type !== "streamlit:render") return;
+      const args = event.data.args;
+      target = Number(args.target || 10);
+      today = String(args.today || "");
+
+      if (!initialized) {
+        initialized = true;
+        const savedAttempt = localStorage.getItem(`oyye_attempt_${today}`);
+        const hasStarted = localStorage.getItem(`oyye_started_${today}`);
+
+        if (savedAttempt !== null) {
+          const val = parseFloat(savedAttempt);
+          display.innerText = formatTime(val);
+          startBtn.disabled = true;
+          stopBtn.disabled = true;
+          statusMsg.innerText = "You have completed today's attempt on this device.";
+          statusMsg.style.color = "#4CAF50";
+          setComponentValue(val);
+        } else if (hasStarted === "true" && !isRunning) {
+          display.innerText = "LOCKED";
+          display.style.color = "#ff4444";
+          startBtn.disabled = true;
+          stopBtn.disabled = true;
+          statusMsg.innerText = "Attempt locked! Refreshing after starting is not allowed.";
+        }
+      }
+      setFrameHeight(270);
+    });
+
+    setComponentReady();
+    setFrameHeight(270);
+  </script>
+</body>
+</html>
+"""
+
+INDEX_HTML.write_text(HTML_CODE, encoding="utf-8")
+timer_component = components.declare_component("timer_component", path=str(COMPONENT_DIR))
+
 # --- CUSTOM CSS (Dark Gaming Theme) ---
 st.markdown("""
 <style>
-    /* Dark Base & Hiding Elements */
     [data-testid="stAppViewContainer"] { background-color: #050505; color: #ffffff; }
     [data-testid="stHeader"] { background-color: transparent; }
     #MainMenu, footer, header { visibility: hidden; }
     
-    /* Branding */
-    .brand-title { text-align: center; color: #ffffff; font-weight: 900; font-size: 2rem; margin-bottom: 0px; }
+    .brand-title { text-align: center; color: #ffffff; font-weight: 900; font-size: 2rem; margin-bottom: 5px; }
     .gold-highlight { color: #d4af37; text-shadow: 0 0 10px rgba(212,175,55,0.4); }
     
-    /* UI Cards */
     .glass-card {
         background: linear-gradient(145deg, #1a0000, #0a0000);
         border: 1px solid #d4af37;
         border-radius: 12px;
-        padding: 20px;
-        margin-bottom: 20px;
-        box-shadow: 0 4px 15px rgba(212, 175, 55, 0.1);
+        padding: 18px;
+        margin-bottom: 18px;
+        box-shadow: 0 4px 15px rgba(212, 175, 55, 0.12);
     }
     
     .target-box {
@@ -38,32 +281,39 @@ st.markdown("""
         background: #000;
         border: 2px dashed #cc0000;
         border-radius: 10px;
-        padding: 15px;
-        margin: 15px 0;
+        padding: 12px;
+        margin: 10px 0;
     }
-    .target-time { font-size: 2.5rem; font-family: monospace; color: #ff3333; font-weight: bold; }
+    .target-time { font-size: 2.3rem; font-family: monospace; color: #ff3333; font-weight: bold; }
     
-    /* Buttons */
     .insta-btn {
-        display: block; width: 100%; text-align: center; background: linear-gradient(45deg, #833ab4, #fd1d1d, #fcb045);
-        color: white; padding: 12px; border-radius: 8px; text-decoration: none; font-weight: bold; margin-bottom: 10px;
+        display: block; width: 100%; text-align: center;
+        background: linear-gradient(45deg, #833ab4, #fd1d1d, #fcb045);
+        color: white !important; padding: 12px; border-radius: 10px;
+        text-decoration: none; font-weight: bold; margin-bottom: 15px;
     }
-    .insta-btn:hover { color: white; opacity: 0.9; }
+    .insta-btn:hover { opacity: 0.92; }
     
-    .stButton>button { width: 100%; background: linear-gradient(45deg, #cc0000, #880000); border: 1px solid #d4af37; color: white; font-weight: bold; border-radius: 8px; padding: 10px; }
-    .stButton>button:hover { background: linear-gradient(45deg, #ff0000, #aa0000); border-color: #ffdf00; color: white;}
+    .stButton>button {
+        width: 100%; background: linear-gradient(45deg, #cc0000, #880000);
+        border: 1px solid #d4af37; color: white; font-weight: bold;
+        border-radius: 8px; padding: 10px;
+    }
 
-    /* Leaderboard */
-    .leaderboard-row { display: flex; justify-content: space-between; padding: 10px; border-bottom: 1px solid #330000; font-family: monospace; font-size: 1.1rem; }
+    .leaderboard-row {
+        display: flex; justify-content: space-between; align-items: center;
+        padding: 10px 12px; border-bottom: 1px solid #330000;
+        font-family: monospace; font-size: 1rem;
+    }
     .leaderboard-row:nth-child(odd) { background-color: rgba(255,0,0,0.05); }
-    .rank-1 { color: #ffd700; font-weight: bold; font-size: 1.3rem; }
+    .rank-1 { color: #ffd700; font-weight: bold; font-size: 1.15rem; }
     .rank-2 { color: #c0c0c0; font-weight: bold; }
     .rank-3 { color: #cd7f32; font-weight: bold; }
 </style>
 """, unsafe_allow_html=True)
 
 # --- INIT DATABASE & TIMEZONE ---
-IST = pytz.timezone('Asia/Kolkata')
+IST = ZoneInfo('Asia/Kolkata')
 today_ist = datetime.now(IST).strftime('%Y-%m-%d')
 
 def init_db():
@@ -72,7 +322,7 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS targets (day TEXT PRIMARY KEY, target INTEGER)''')
     c.execute('''CREATE TABLE IF NOT EXISTS entries 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, day TEXT, instagram TEXT, 
-                  elapsed REAL, diff REAL, created_at TEXT, UNIQUE(day, instagram))''')
+                  elapsed REAL, created_at TEXT, UNIQUE(day, instagram))''')
     conn.commit()
     return conn
 
@@ -83,152 +333,166 @@ def get_daily_target(date_str):
     c.execute("SELECT target FROM targets WHERE day = ?", (date_str,))
     row = c.fetchone()
     if row:
-        return row[0]
-    else:
-        new_target = random.randint(10, 20) # Ensures 10-20 sec as per prompt spec
-        c.execute("INSERT INTO targets (day, target) VALUES (?, ?)", (date_str, new_target))
-        conn.commit()
-        return new_target
+        return int(row[0])
+    new_target = random.randint(10, 20)
+    c.execute("INSERT INTO targets (day, target) VALUES (?, ?)", (date_str, new_target))
+    conn.commit()
+    return new_target
 
 daily_target = get_daily_target(today_ist)
 
-# --- DECLARE COMPONENT ---
-timer_component = components.declare_component("timer_component", path="timer_component")
-
 # --- UI HEADER ---
 st.markdown("<p class='brand-title'>@oyye_rider <span class='gold-highlight'>Giveaway</span></p>", unsafe_allow_html=True)
-st.markdown("<a href='https://www.instagram.com/oyye_rider/' target='_blank' class='insta-btn'>📸 Follow on Instagram</a>", unsafe_allow_html=True)
+st.markdown("<a href='https://www.instagram.com/oyye_rider/' target='_blank' class='insta-btn'>📸 Follow @oyye_rider on Instagram</a>", unsafe_allow_html=True)
 
 st.markdown(f"""
 <div class="glass-card">
-    <h3 style='text-align:center; margin:0;'>Today's Target Time</h3>
+    <h3 style='text-align:center; margin:0; color:#d4af37;'>🎯 Today's Target Time</h3>
     <div class="target-box">
         <span class="target-time">{daily_target:.3f} SEC</span>
     </div>
-    <p style='text-align:center; color:#ccc; font-size: 0.9rem;'>Stop the timer exactly at the target. Smallest difference wins!</p>
+    <p style='text-align:center; color:#ccc; font-size: 0.9rem; margin:0;'>
+        Click <b>START TIMER</b> and manually stop it as close as possible to <b>{daily_target:.3f}s</b>!
+    </p>
 </div>
 """, unsafe_allow_html=True)
 
-# --- RENDER TIMER ---
-# Passed parameters dictate target and today's date for LocalStorage locking
+# --- RENDER TIMER COMPONENT ---
 timer_value = timer_component(target=daily_target, today=today_ist, key="daily_timer")
 
 # --- ENTRY SUBMISSION LOGIC ---
-if "entry_submitted" not in st.session_state:
+if "entry_submitted_day" not in st.session_state or st.session_state.entry_submitted_day != today_ist:
     st.session_state.entry_submitted = False
+    st.session_state.entry_submitted_day = today_ist
 
 if timer_value is not None:
-    difference = abs(timer_value - daily_target)
+    stopped_time = float(timer_value)
+    difference = abs(stopped_time - daily_target)
+    
+    st.markdown(f"""
+    <div class="glass-card" style="border-color: #4CAF50;">
+        <h3 style="text-align:center; color:#4CAF50; margin-top:0;">⏱️ Timer Stopped!</h3>
+        <p style="text-align:center; font-family:monospace; font-size:1.15rem; margin-bottom:0;">
+            Stopped Time: <b>{stopped_time:.3f}s</b><br>
+            Target Time: <b>{daily_target:.3f}s</b><br>
+            Difference: <b style="color:#ffd700;">{difference:.3f}s</b>
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
     
     if not st.session_state.entry_submitted:
-        st.markdown(f"""
-        <div class="glass-card" style="border-color: #4CAF50;">
-            <h3 style="text-align:center; color:#4CAF50;">Timer Stopped!</h3>
-            <p style="text-align:center; font-family:monospace; font-size:1.2rem;">
-            Your Time: <b>{timer_value:.3f}s</b><br>
-            Difference: <b>{difference:.3f}s</b>
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-        
         with st.form("submission_form"):
-            st.write("Submit your Instagram username to claim your spot on the leaderboard.")
+            st.write("Enter your Instagram username to join today's leaderboard:")
             insta_user = st.text_input("Instagram Username (with or without @)")
             submitted = st.form_submit_button("Submit Entry")
             
             if submitted:
-                if not insta_user:
-                    st.error("Please enter a valid Instagram username.")
+                clean_user = insta_user.strip().lower().lstrip('@')
+                if not clean_user or not re.match(r'^[a-z0-9._]{1,30}$', clean_user):
+                    st.error("Please enter a valid Instagram username (letters, numbers, periods, underscores).")
                 else:
-                    # Normalize username
-                    clean_user = insta_user.strip().lower()
-                    if clean_user.startswith('@'):
-                        clean_user = clean_user[1:]
-                        
-                    if not re.match(r'^[a-z0-9_\.]+$', clean_user):
-                        st.error("Invalid Instagram username format.")
-                    else:
-                        timestamp = datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')
-                        c = conn.cursor()
-                        try:
-                            c.execute("INSERT INTO entries (day, instagram, elapsed, diff, created_at) VALUES (?, ?, ?, ?, ?)",
-                                      (today_ist, clean_user, timer_value, difference, timestamp))
-                            conn.commit()
-                            st.session_state.entry_submitted = True
-                            st.session_state.current_user = clean_user
-                            st.rerun()
-                        except sqlite3.IntegrityError:
-                            st.error("This Instagram username has already been registered for today!")
+                    timestamp = datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')
+                    c = conn.cursor()
+                    try:
+                        with conn:
+                            c.execute(
+                                "INSERT INTO entries (day, instagram, elapsed, created_at) VALUES (?, ?, ?, ?)",
+                                (today_ist, clean_user, stopped_time, timestamp)
+                            )
+                        st.session_state.entry_submitted = True
+                        st.session_state.current_user = clean_user
+                        st.success(f"Entry confirmed for @{clean_user}!")
+                        st.rerun()
+                    except sqlite3.IntegrityError:
+                        st.warning(f"@{clean_user} has already submitted an entry today!")
+                        st.session_state.entry_submitted = True
+                        st.session_state.current_user = clean_user
 
-# --- LEADERBOARD & WINNER LOGIC ---
-st.markdown("### 🏆 Live Leaderboard")
+# --- LEADERBOARD & PROVISIONAL WINNER LOGIC ---
+st.markdown("### 🏆 Today's Top 50 Leaderboard")
 
 c = conn.cursor()
 c.execute("""
-    SELECT instagram, elapsed, diff 
+    SELECT instagram, elapsed, ABS(elapsed - ?) AS diff, created_at 
     FROM entries 
     WHERE day = ? 
     ORDER BY diff ASC, created_at ASC 
     LIMIT 50
-""", (today_ist,))
+""", (daily_target, today_ist))
 leaderboard = c.fetchall()
 
 if not leaderboard:
-    st.info("No entries yet today. Be the first!")
+    st.info("No entries yet for today. Stop the timer above to become #1!")
 else:
-    # Check if the current session user is the provisional winner
-    rank_1_user = leaderboard[0][0]
+    top_user, top_elapsed, top_diff, top_time = leaderboard[0]
+    
+    st.markdown(f"""
+    <div class="glass-card" style="border-color: #ffd700; text-align:center;">
+        <div style="color:#ffd700; font-weight:bold; font-size:1.1rem;">👑 CURRENT PROVISIONAL LEADER</div>
+        <div style="font-size:1.5rem; font-weight:900; margin:6px 0;">@{top_user}</div>
+        <div style="font-family:monospace; color:#ccc;">
+            Stopped: <b>{top_elapsed:.3f}s</b> | Diff: <b style="color:#4CAF50;">{top_diff:.3f}s</b>
+        </div>
+        <div style="font-size:0.75rem; color:#999; margin-top:6px;">
+            *Provisional leader until 11:59:59 PM IST. Final winner is confirmed at the end of the day.
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Show Winner Popup & WhatsApp Claim Button ONLY to current #1 participant
     is_provisional_winner = (
         st.session_state.get("entry_submitted") and 
-        st.session_state.get("current_user") == rank_1_user
+        st.session_state.get("current_user") == top_user
     )
 
     if is_provisional_winner:
         st.balloons()
-        st.success("🎉 CONGRATULATIONS! You are currently ranked 1st!")
-        
         admin_wa = st.secrets.get("ADMIN_WHATSAPP", "910000000000")
-        wa_msg = f"Hi Admin! I am the provisional winner for the {today_ist} timer challenge.\n\nInsta: @{rank_1_user}\nTarget: {daily_target:.3f}s\nMy Time: {leaderboard[0][1]:.3f}s\nDifference: {leaderboard[0][2]:.3f}s"
+        wa_msg = (
+            f"Hi @oyye_rider Admin! I am currently Rank #1 (Provisional Winner) in the Daily Timer Giveaway.\n\n"
+            f"Instagram: @{top_user}\n"
+            f"Stopped Time: {top_elapsed:.3f}s\n"
+            f"Daily Target: {daily_target:.3f}s\n"
+            f"Difference: {top_diff:.3f}s\n"
+            f"Date: {today_ist}"
+        )
         wa_url = f"https://wa.me/{admin_wa}?text={urllib.parse.quote(wa_msg)}"
         
         st.markdown(f"""
-        <div class="glass-card" style="border-color: #ffd700; text-align:center;">
-            <h3 style="color:#ffd700;">🥇 Provisional Winner!</h3>
-            <p>If you maintain this rank until midnight, click below to claim your prize.</p>
-            <a href="{wa_url}" target="_blank" style="display:inline-block; background:#25D366; color:white; padding:12px 24px; border-radius:8px; text-decoration:none; font-weight:bold;">📱 Claim via WhatsApp</a>
+        <div class="glass-card" style="border: 2px solid #25D366; background: #06210e; text-align:center;">
+            <h3 style="color:#4CAF50; margin-top:0;">🎉 CONGRATULATIONS @{top_user}!</h3>
+            <p style="font-size:0.95rem;">You are currently <b>Rank #1</b> on today's leaderboard!</p>
+            <p style="font-family:monospace; font-size:0.9rem;">
+                Stopped: {top_elapsed:.3f}s | Target: {daily_target:.3f}s | Diff: {top_diff:.3f}s
+            </p>
+            <a href="{wa_url}" target="_blank" style="display:inline-block; background:#25D366; color:white; padding:12px 24px; border-radius:8px; text-decoration:none; font-weight:bold; margin-top:8px;">
+                💬 Contact Admin on WhatsApp
+            </a>
         </div>
         """, unsafe_allow_html=True)
 
-    # Render Leaderboard entries
-    st.markdown('<div class="glass-card" style="padding:0;">', unsafe_allow_html=True)
-    for idx, row in enumerate(leaderboard):
+    # Render Top 50 Table
+    rows_html = '<div class="glass-card" style="padding:5px 0;">'
+    for idx, (insta, elapsed_val, diff_val, created_at) in enumerate(leaderboard):
         rank = idx + 1
-        insta = row[0]
-        time_diff = row[2]
-        
-        medal = ""
-        rank_class = ""
-        if rank == 1: 
-            medal, rank_class = "🥇", "rank-1"
-        elif rank == 2: 
-            medal, rank_class = "🥈", "rank-2"
-        elif rank == 3: 
-            medal, rank_class = "🥉", "rank-3"
-            
-        st.markdown(f"""
+        medal = "🥇" if rank == 1 else "🥈" if rank == 2 else "🥉" if rank == 3 else f"#{rank}"
+        rank_class = f"rank-{rank}" if rank <= 3 else ""
+        rows_html += f"""
         <div class="leaderboard-row">
-            <div class="{rank_class}" style="width:15%;">{medal} #{rank}</div>
-            <div style="width:45%;">@{insta}</div>
-            <div style="width:40%; text-align:right; color:#ccc;">Δ {time_diff:.3f}s</div>
+            <div class="{rank_class}" style="width:18%;">{medal}</div>
+            <div style="width:38%; overflow:hidden; text-overflow:ellipsis;">@{insta}</div>
+            <div style="width:22%; text-align:right; color:#aaa;">{elapsed_val:.3f}s</div>
+            <div style="width:22%; text-align:right; color:#d4af37;">Δ {diff_val:.3f}s</div>
         </div>
-        """, unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+        """
+    rows_html += '</div>'
+    st.markdown(rows_html, unsafe_allow_html=True)
 
-# --- DISCLAIMERS ---
-with st.expander("Terms & Technical Notes"):
+# --- FAIRNESS & TECHNICAL TRANSPARENCY ---
+with st.expander("ℹ️ Rules, Fairness & Technical Notes"):
     st.caption("""
-    - **One Attempt Limit:** Enforced securely via browser local storage. Clearing your cache or changing devices bypasses this client-side limit.
-    - **Verification:** @oyye_rider reserves the right to disqualify entries suspected of manipulation. Instagram follow status is not automatically verified by API but is checked manually for winners.
-    - **Server Note:** Hosted on Streamlit Community Cloud. If the container restarts, SQLite database memory might reset unless connected to a persistent PostgreSQL instance. For full production durability, migration to Postgres is recommended.
-    - **Final Winners:** The final winner is determined at 11:59 PM IST. Provisional status during the day is subject to change.
+    - **1 Attempt Per Day:** Locked immediately when you press START TIMER using browser LocalStorage. Refreshing the page after starting locks the attempt for the day.
+    - **Client-Side Limits:** Because this is a public web challenge without login, clearing browser data or switching devices can bypass LocalStorage limits, and browser timers run on the client device.
+    - **Instagram Follow:** Please follow @oyye_rider on Instagram. Follow status is checked manually by the admin when verifying the daily winner.
+    - **Database Note:** SQLite on Streamlit Community Cloud is stored on the container disk and may reset if the cloud server restarts or sleeps.
     """)
