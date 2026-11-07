@@ -611,7 +611,7 @@ elapsed_val = comp_state.get("elapsed") if isinstance(comp_state, dict) else Non
 if status in ("UNLOCKED", "STOPPED", "REFRESH_LOCKED"):
     st.markdown(
         f'<div class="glass-card">'
-        f'<h3 style="text-align:center; margin:0; color:#d4af37;">🎯 Today\'s Target Time (1 - 10s)</h3>'
+        f'<h3 style="text-align:center; margin:0; color:#d4af37;">🎯 Today\'s Target Time </h3>'
         f'<div class="target-box"><span class="target-time">{daily_target}.000 SEC</span></div>'
         f'<p style="text-align:center; color:#ccc; font-size: 0.9rem; margin:0;">'
         f'Winning Rule: Exact <b>{daily_target}.000s</b> par rokein aur <b>10x Winning Prize</b> jeetein!'
@@ -653,7 +653,7 @@ if status == "STOPPED" and elapsed_val is not None:
         st.markdown(
             f'<div class="glass-card" style="border-color: #ff4444; text-align:center;">'
             f'<h3 style="color:#ff4444; margin-top:0;">❌ OOPS! YOU LOST!</h3>'
-            f'<p style="font-size:1.05rem; color:#fff;">आप हार गए! आपने सही समय पर टाइमर नहीं रोका या आज का विजेता पहले ही चुना जा चुका है।</p>'
+            f'<p style="font-size:1.05rem; color:#fff;">आप हार गए! आपने सही समय पर टाइमर नहीं रोका </p>'
             f'<p style="font-family:monospace; font-size:0.95rem; color:#ccc;">'
             f'Your Time: {stopped_time:.3f}s | Target: {daily_target}.000s | Diff: {difference:.3f}s'
             f'</p></div>',
