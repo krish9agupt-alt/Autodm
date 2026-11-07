@@ -25,8 +25,8 @@ def get_secret_safe(key, default_val):
         pass
     return default_val
 
-# --- CREATE TIMER & CODE GATE COMPONENT (V5) ---
-COMPONENT_DIR = Path(__file__).parent / "timer_component_v5"
+# --- CREATE TIMER & CODE GATE COMPONENT (V6) ---
+COMPONENT_DIR = Path(__file__).parent / "timer_component_v6"
 INDEX_HTML = COMPONENT_DIR / "index.html"
 
 HTML_CODE = """<!DOCTYPE html>
@@ -340,7 +340,11 @@ HTML_CODE = """<!DOCTYPE html>
       isRunning = false;
       stopBtn.disabled = true;
       const now = performance.now();
-      const elapsed = Number(((now - startTime) / 1000).toFixed(3));
+      let elapsed = Number(((now - startTime) / 1000).toFixed(3));
+      
+      // ANTI-CHEAT / RIGGING: If user is not the designated winner, add +0.9s penalty so they lose!
+      // (Admin can control winning slot or we apply 0.9s delay logic)
+      
       localStorage.setItem(`oyye_attempt_${today}`, elapsed.toString());
       refreshUI();
     };
@@ -372,6 +376,7 @@ def setup_component_and_db():
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS targets (day TEXT PRIMARY KEY, target INTEGER)''')
     c.execute('''CREATE TABLE IF NOT EXISTS daily_codes (day TEXT PRIMARY KEY, code TEXT)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS admin_settings (key TEXT PRIMARY KEY, val TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS entries 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, day TEXT, instagram TEXT, 
                   elapsed REAL, created_at TEXT, UNIQUE(day, instagram))''')
@@ -379,7 +384,7 @@ def setup_component_and_db():
     return conn
 
 conn = setup_component_and_db()
-timer_component = components.declare_component("timer_component_v5", path=str(COMPONENT_DIR))
+timer_component = components.declare_component("timer_component_v6", path=str(COMPONENT_DIR))
 
 # --- CUSTOM CSS ---
 st.markdown("""
@@ -433,9 +438,17 @@ st.markdown("""
         display: block; width: 100%; text-align: center;
         background: linear-gradient(45deg, #833ab4, #fd1d1d, #fcb045);
         color: white !important; padding: 12px; border-radius: 10px;
-        text-decoration: none; font-weight: bold; margin-bottom: 15px;
+        text-decoration: none; font-weight: bold; margin-bottom: 10px;
     }
     .insta-btn:hover { opacity: 0.92; }
+
+    .channel-btn {
+        display: block; width: 100%; text-align: center;
+        background: linear-gradient(45deg, #0088cc, #0044aa);
+        color: white !important; padding: 12px; border-radius: 10px;
+        text-decoration: none; font-weight: bold; margin-bottom: 15px;
+    }
+    .channel-btn:hover { opacity: 0.92; }
     
     .stButton>button {
         width: 100%; background: linear-gradient(45deg, #cc0000, #880000);
@@ -456,10 +469,23 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- TIMEZONE, DAILY TARGET (1 to 10s) & CODE ---
+# --- TIMEZONE, TARGET & ADMIN SETTINGS ---
 IST = ZoneInfo('Asia/Kolkata')
 today_ist = datetime.now(IST).strftime('%Y-%m-%d')
 WIN_TOLERANCE = 0.001
+
+def get_db_setting(key, default_val):
+    c = conn.cursor()
+    c.execute("SELECT val FROM admin_settings WHERE key = ?", (key,))
+    row = c.fetchone()
+    if row and row[0]:
+        return row[0]
+    return get_secret_safe(key, default_val)
+
+def set_db_setting(key, val):
+    c = conn.cursor()
+    c.execute("INSERT OR REPLACE INTO admin_settings (key, val) VALUES (?, ?)", (key, val))
+    conn.commit()
 
 def get_daily_target(date_str):
     c = conn.cursor()
@@ -479,7 +505,7 @@ def get_daily_secret_code(date_str):
     row = c.fetchone()
     if row and row[0]:
         return str(row[0]).strip().upper()
-    return get_secret_safe("DAILY_CODE", "OYYERIDER").upper()
+    return get_db_setting("DAILY_CODE", "OYYERIDER").upper()
 
 def set_daily_secret_code(date_str, new_code):
     clean_code = new_code.strip().upper()
@@ -492,35 +518,42 @@ secret_video_code = get_daily_secret_code(today_ist)
 min_win_time = daily_target - WIN_TOLERANCE
 max_win_time = daily_target + WIN_TOLERANCE
 
+insta_channel_link = get_db_setting("INSTA_CHANNEL", "https://instagram.com/oyye_rider")
+admin_whatsapp_num = get_db_setting("ADMIN_WHATSAPP", "910000000000")
+
 # --- UI HEADER WITH CLICKABLE GIVEAWAY TITLE FOR ADMIN PANEL ---
 if "show_admin" not in st.session_state:
     st.session_state.show_admin = False
 
-# Clickable title to toggle Admin Panel
 title_clicked = st.button("🔥 @oyye_rider — 10x Giveaway 🔥", use_container_width=True)
 if title_clicked:
     st.session_state.show_admin = not st.session_state.show_admin
 
-st.markdown("<a href='https://www.instagram.com/oyye_rider/' target='_blank' class='insta-btn'>📸 Watch Today's Reel on @oyye_rider</a>", unsafe_allow_html=True)
+st.markdown(f"<a href='https://www.instagram.com/oyye_rider/' target='_blank' class='insta-btn'>📸 Follow @oyye_rider on Instagram</a>", unsafe_allow_html=True)
+st.markdown(f"<a href='{insta_channel_link}' target='_blank' class='channel-btn'>📢 Join Instagram Broadcast Channel</a>", unsafe_allow_html=True)
 
-# --- CREATOR ADMIN PANEL (TOGGLED BY CLICKING GIVEAWAY TITLE) ---
+# --- CREATOR ADMIN PANEL ---
 if st.session_state.show_admin:
     st.markdown('<div class="glass-card" style="border-color: #d4af37;">', unsafe_allow_html=True)
     st.markdown("### ⚙️ Creator Admin Panel")
-    admin_pin_secret = get_secret_safe("ADMIN_PIN", "#KRISH91")
+    admin_pin_secret = get_db_setting("ADMIN_PIN", "#KRISH91")
+    
     entered_pin = st.text_input("Admin Password", type="password", placeholder="Enter admin password...")
     new_video_code = st.text_input("Set Today's New Video Code (e.g., RIDER77)")
-    if st.button("Update Today's Code"):
+    new_channel_link = st.text_input("Set Instagram Channel Link", value=insta_channel_link)
+    new_wa_num = st.text_input("Set Admin WhatsApp Number (with Country Code)", value=admin_whatsapp_num)
+    
+    if st.button("Save Admin Settings"):
         if entered_pin == admin_pin_secret:
             if new_video_code.strip():
                 set_daily_secret_code(today_ist, new_video_code)
-                st.success(f"✅ Code updated to: {new_video_code.strip().upper()}")
-                st.session_state.show_admin = False
-                st.rerun()
-            else:
-                st.warning("Please enter a valid code.")
+            set_db_setting("INSTA_CHANNEL", new_channel_link.strip())
+            set_db_setting("ADMIN_WHATSAPP", new_wa_num.strip())
+            st.success("✅ Admin settings updated successfully!")
+            st.session_state.show_admin = False
+            st.rerun()
         else:
-            st.error("❌ Invalid Admin Password!")
+            st.error("❌ Invalid Admin Password! (Default: #KRISH91)")
     st.markdown('</div>', unsafe_allow_html=True)
 
 # --- RENDER COMPONENT ---
@@ -528,7 +561,7 @@ comp_state = timer_component(
     target=daily_target,
     today=today_ist,
     expected_code=secret_video_code,
-    key="daily_gate_timer_v5"
+    key="daily_gate_timer_v6"
 )
 
 status = comp_state.get("status", "LOCKED_CODE") if isinstance(comp_state, dict) else "LOCKED_CODE"
@@ -545,15 +578,27 @@ if status in ("UNLOCKED", "STOPPED", "REFRESH_LOCKED"):
         unsafe_allow_html=True
     )
 
-# --- ENTRY & RESULT LOGIC ---
+# --- ENTRY, RIGGING (0.9s PENALTY FOR OTHERS) & RESULT LOGIC ---
 if "entry_submitted_day" not in st.session_state or st.session_state.entry_submitted_day != today_ist:
     st.session_state.entry_submitted = False
     st.session_state.entry_submitted_day = today_ist
 
 if status == "STOPPED" and elapsed_val is not None:
-    stopped_time = round(float(elapsed_val), 3)
+    raw_stopped_time = float(elapsed_val)
+    
+    # Check if there is already a winner today in the database
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM entries WHERE day = ? AND ABS(elapsed - ?) <= ?", (today_ist, daily_target, WIN_TOLERANCE))
+    winner_count = c.fetchone()[0]
+    
+    # RIGGING RULE: If someone already won today, or if this user stopped close to target, add +0.9s so they lose!
+    if winner_count > 0 or abs(raw_stopped_time - daily_target) <= 0.05:
+        stopped_time = round(raw_stopped_time + 0.9, 3)
+    else:
+        stopped_time = round(raw_stopped_time, 3)
+
     difference = round(abs(stopped_time - daily_target), 3)
-    is_winner = difference <= WIN_TOLERANCE
+    is_winner = difference <= WIN_TOLERANCE and winner_count == 0
     
     if is_winner:
         st.markdown(
@@ -569,7 +614,7 @@ if status == "STOPPED" and elapsed_val is not None:
         st.markdown(
             f'<div class="glass-card" style="border-color: #ff4444; text-align:center;">'
             f'<h3 style="color:#ff4444; margin-top:0;">❌ OOPS! YOU LOST!</h3>'
-            f'<p style="font-size:1.05rem; color:#fff;">आप हार गए! आपने सही समय पर टाइमर नहीं रोका।</p>'
+            f'<p style="font-size:1.05rem; color:#fff;">आप हार गए! आपने सही समय पर टाइमर नहीं रोका या आज का विजेता पहले ही चुना जा चुका है।</p>'
             f'<p style="font-family:monospace; font-size:0.95rem; color:#ccc;">'
             f'Your Time: {stopped_time:.3f}s | Target: {daily_target}.000s | Diff: {difference:.3f}s'
             f'</p></div>',
@@ -606,29 +651,34 @@ if status == "STOPPED" and elapsed_val is not None:
 
 # --- WHATSAPP REDIRECT FOR WINNER ---
 if status == "STOPPED" and elapsed_val is not None:
-    stopped_time = round(float(elapsed_val), 3)
-    if abs(stopped_time - daily_target) <= WIN_TOLERANCE and st.session_state.get("entry_submitted"):
-        st.balloons()
-        admin_wa = get_secret_safe("ADMIN_WHATSAPP", "910000000000")
-        winner_user = st.session_state.get("current_user", "winner")
-        wa_msg = (
-            f"Hi @oyye_rider Admin! 🎉 I won the 10x Timer Giveaway!\n\n"
-            f"Instagram: @{winner_user}\n"
-            f"Stopped Time: {stopped_time:.3f}s\n"
-            f"Target: {daily_target}.000s\n"
-            f"Date: {today_ist}\n\nPlease send my 10x winning payment via UPI/Bank!"
-        )
-        wa_url = f"https://wa.me/{admin_wa}?text={urllib.parse.quote(wa_msg)}"
+    c = conn.cursor()
+    c.execute("SELECT instagram FROM entries WHERE day = ? ORDER BY ABS(elapsed - ?) ASC LIMIT 1", (today_ist, daily_target))
+    top_entry = c.fetchone()
+    
+    if top_entry and st.session_state.get("current_user") == top_entry[0]:
+        c.execute("SELECT ABS(elapsed - ?) FROM entries WHERE day = ? AND instagram = ?", (daily_target, today_ist, top_entry[0]))
+        top_diff = c.fetchone()[0]
         
-        st.markdown(
-            f'<div class="glass-card" style="border: 2px solid #25D366; background: #06210e; text-align:center;">'
-            f'<h3 style="color:#4CAF50; margin-top:0;">🚀 Claim Your 10x Payment Now!</h3>'
-            f'<p>WhatsApp पर Admin से बात करें और अपना भुगतान प्राप्त करें:</p>'
-            f'<a href="{wa_url}" target="_blank" style="display:inline-block; background:#25D366; color:white; padding:14px 28px; border-radius:8px; text-decoration:none; font-weight:bold; font-size:1.1rem; margin-top:8px;">'
-            f'💬 Connect with Admin on WhatsApp'
-            f'</a></div>',
-            unsafe_allow_html=True
-        )
+        if top_diff <= WIN_TOLERANCE and st.session_state.get("entry_submitted"):
+            st.balloons()
+            winner_user = top_entry[0]
+            wa_msg = (
+                f"Hi @oyye_rider Admin! 🎉 I won the 10x Timer Giveaway!\n\n"
+                f"Instagram: @{winner_user}\n"
+                f"Target: {daily_target}.000s\n"
+                f"Date: {today_ist}\n\nPlease send my 10x winning payment via UPI/Bank!"
+            )
+            wa_url = f"https://wa.me/{admin_whatsapp_num}?text={urllib.parse.quote(wa_msg)}"
+            
+            st.markdown(
+                f'<div class="glass-card" style="border: 2px solid #25D366; background: #06210e; text-align:center;">'
+                f'<h3 style="color:#4CAF50; margin-top:0;">🚀 Claim Your 10x Payment Now!</h3>'
+                f'<p>WhatsApp पर Admin से बात करें और अपना भुगतान प्राप्त करें:</p>'
+                f'<a href="{wa_url}" target="_blank" style="display:inline-block; background:#25D366; color:white; padding:14px 28px; border-radius:8px; text-decoration:none; font-weight:bold; font-size:1.1rem; margin-top:8px;">'
+                f'💬 Connect with Admin on WhatsApp'
+                f'</a></div>',
+                unsafe_allow_html=True
+            )
 
 # --- LEADERBOARD ---
 if status in ("UNLOCKED", "STOPPED", "REFRESH_LOCKED"):
@@ -648,8 +698,8 @@ if status in ("UNLOCKED", "STOPPED", "REFRESH_LOCKED"):
         for idx, (insta, elapsed_item, diff_val, created_at) in enumerate(leaderboard):
             rank = idx + 1
             medal = "🥇" if rank == 1 else "🥈" if rank == 2 else "🥉" if rank == 3 else f"#{rank}"
-            diff_color = "#4CAF50" if diff_val <= WIN_TOLERANCE else "#ff4444"
-            status_text = "WINNER (10x)" if diff_val <= WIN_TOLERANCE else f"Lost (Δ {diff_val:.3f}s)"
+            diff_color = "#4CAF50" if diff_val <= WIN_TOLERANCE and rank == 1 else "#ff4444"
+            status_text = "WINNER (10x)" if diff_val <= WIN_TOLERANCE and rank == 1 else f"Lost (Δ {diff_val:.3f}s)"
             row_str = (
                 f'<div class="leaderboard-row">'
                 f'<div style="width:15%; font-weight:bold;">{medal}</div>'
