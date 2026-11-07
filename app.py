@@ -16,8 +16,8 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- CREATE TIMER COMPONENT ONCE (SAVES CPU & DISK I/O) ---
-COMPONENT_DIR = Path(__file__).parent / "timer_component_v2"
+# --- CREATE TIMER & CODE GATE COMPONENT (V3) ---
+COMPONENT_DIR = Path(__file__).parent / "timer_component_v3"
 INDEX_HTML = COMPONENT_DIR / "index.html"
 
 HTML_CODE = """<!DOCTYPE html>
@@ -33,16 +33,51 @@ HTML_CODE = """<!DOCTYPE html>
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
       text-align: center;
       margin: 0;
-      padding: 10px 5px;
+      padding: 6px 4px;
       overflow: hidden;
     }
+    .card {
+      background: linear-gradient(145deg, #1a0000, #0a0000);
+      border: 1px solid #d4af37;
+      border-radius: 14px;
+      padding: 18px 14px;
+      box-shadow: 0 4px 15px rgba(212, 175, 55, 0.15);
+    }
+    h3 {
+      margin: 0 0 10px 0;
+      color: #d4af37;
+      font-size: 1.3rem;
+    }
+    p {
+      color: #ccc;
+      font-size: 0.92rem;
+      margin: 0 0 14px 0;
+      line-height: 1.4;
+    }
+    input[type="text"] {
+      width: 100%;
+      max-width: 300px;
+      padding: 14px;
+      font-size: 1.1rem;
+      border-radius: 10px;
+      border: 1px solid #d4af37;
+      background: #050505;
+      color: #fff;
+      text-align: center;
+      font-weight: bold;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+      outline: none;
+      user-select: text;
+      -webkit-user-select: text;
+    }
     #timer-display {
-      font-size: 4.2rem;
+      font-size: 4rem;
       font-weight: 900;
       color: #d4af37;
       font-family: 'Courier New', Courier, monospace;
       text-shadow: 0 0 18px rgba(212, 175, 55, 0.7);
-      margin-bottom: 20px;
+      margin-bottom: 18px;
       letter-spacing: 2px;
       background: #0a0000;
       border: 2px solid #330000;
@@ -52,14 +87,14 @@ HTML_CODE = """<!DOCTYPE html>
     .btn-container {
       display: flex;
       flex-direction: column;
-      gap: 14px;
+      gap: 12px;
       align-items: center;
     }
     button {
       width: 100%;
-      max-width: 320px;
-      padding: 16px 20px;
-      font-size: 1.25rem;
+      max-width: 300px;
+      padding: 15px 18px;
+      font-size: 1.15rem;
       border-radius: 12px;
       border: 1px solid #d4af37;
       cursor: pointer;
@@ -68,13 +103,15 @@ HTML_CODE = """<!DOCTYPE html>
       letter-spacing: 1px;
       transition: transform 0.1s, opacity 0.2s;
     }
-    button:active:not(:disabled) {
-      transform: scale(0.98);
+    button:active:not(:disabled) { transform: scale(0.98); }
+    .gold-btn {
+      background: linear-gradient(45deg, #cc0000, #880000);
+      color: white;
+      box-shadow: 0 0 12px rgba(204, 0, 0, 0.5);
     }
     #start-btn {
       background: linear-gradient(45deg, #1a1a1a, #333333);
       color: #d4af37;
-      box-shadow: 0 4px 12px rgba(212, 175, 55, 0.2);
     }
     #stop-btn {
       background: linear-gradient(45deg, #cc0000, #880000);
@@ -89,65 +126,93 @@ HTML_CODE = """<!DOCTYPE html>
       box-shadow: none;
       color: #666;
     }
-    #status-msg {
-      margin-top: 12px;
+    #status-msg, #code-msg {
+      margin-top: 10px;
       font-size: 0.9rem;
       color: #ff5555;
       font-weight: 600;
       min-height: 20px;
     }
+    .hidden { display: none !important; }
   </style>
 </head>
 <body>
-  <div id="timer-display">00.000</div>
-  <div class="btn-container">
-    <button id="start-btn">START TIMER</button>
-    <button id="stop-btn" disabled>STOP TIMER</button>
+
+  <!-- VIEW 1: DAILY VIDEO CODE GATE -->
+  <div id="code-gate-view" class="card hidden">
+    <h3>🔒 Enter Today's Video Code</h3>
+    <p>आज के Giveaway में भाग लेने के लिए <b>@oyye_rider</b> की आज की वीडियो देखें और उसमें बताया गया कोड नीचे डालें。<br><span style="color:#ff9800; font-size:0.82rem;">(ध्यान रहे: आप एक दिन में सिर्फ 1 बार ही इस कोड और वेबसाइट का उपयोग कर सकते हैं!)</span></p>
+    <input type="text" id="secret-input" placeholder="ENTER VIDEO CODE..." autocomplete="off" />
+    <div class="btn-container">
+      <button id="unlock-btn" class="gold-btn">🔓 UNLOCK CHALLENGE</button>
+    </div>
+    <div id="code-msg"></div>
   </div>
-  <div id="status-msg"></div>
+
+  <!-- VIEW 2: TIMER CHALLENGE -->
+  <div id="timer-view" class="hidden">
+    <div id="timer-display">00.000</div>
+    <div class="btn-container">
+      <button id="start-btn">START TIMER</button>
+      <button id="stop-btn" disabled>STOP TIMER</button>
+    </div>
+    <div id="status-msg"></div>
+  </div>
+
+  <!-- VIEW 3: ALREADY USED TODAY (1 DAY 1 ATTEMPT LOCK) -->
+  <div id="used-view" class="card hidden">
+    <h3 id="used-title" style="color:#4CAF50;">✅ Today's Attempt Completed!</h3>
+    <div id="used-time-box" style="font-family:monospace; font-size:1.8rem; color:#d4af37; font-weight:bold; margin:10px 0;"></div>
+    <p id="used-desc">आप आज इस मोबाइल पर अपना 1 बार का चांस और कोड इस्तेमाल कर चुके हैं। अब आप कल के नए वीडियो कोड के साथ दोबारा खेल सकते हैं!</p>
+  </div>
 
   <script>
     function sendMessageToStreamlitClient(type, data) {
-      const outData = Object.assign({
-        isStreamlitMessage: true,
-        type: type,
-      }, data);
+      const outData = Object.assign({ isStreamlitMessage: true, type: type }, data);
       window.parent.postMessage(outData, "*");
     }
-
-    function setComponentReady() {
-      sendMessageToStreamlitClient("streamlit:componentReady", {apiVersion: 1});
-    }
-
-    function setFrameHeight(height) {
-      sendMessageToStreamlitClient("streamlit:setFrameHeight", {height: height});
-    }
-
-    function setComponentValue(value) {
-      sendMessageToStreamlitClient("streamlit:setComponentValue", {value: value});
-    }
+    function setComponentReady() { sendMessageToStreamlitClient("streamlit:componentReady", {apiVersion: 1}); }
+    function setFrameHeight(height) { sendMessageToStreamlitClient("streamlit:setFrameHeight", {height: height}); }
+    function setComponentValue(value) { sendMessageToStreamlitClient("streamlit:setComponentValue", {value: value}); }
 
     let target = 10;
     let today = "";
+    let expectedCode = "";
     let startTime = 0;
     let isRunning = false;
     let beepPlayed = false;
     let audioCtx = null;
-    let initialized = false;
+    let lastStateSent = "";
+
+    const codeGateView = document.getElementById("code-gate-view");
+    const timerView = document.getElementById("timer-view");
+    const usedView = document.getElementById("used-view");
+
+    const secretInput = document.getElementById("secret-input");
+    const unlockBtn = document.getElementById("unlock-btn");
+    const codeMsg = document.getElementById("code-msg");
 
     const display = document.getElementById("timer-display");
     const startBtn = document.getElementById("start-btn");
     const stopBtn = document.getElementById("stop-btn");
     const statusMsg = document.getElementById("status-msg");
 
+    const usedTitle = document.getElementById("used-title");
+    const usedTimeBox = document.getElementById("used-time-box");
+    const usedDesc = document.getElementById("used-desc");
+
+    function syncToPython(payload) {
+      const serialized = JSON.stringify(payload);
+      if (serialized !== lastStateSent) {
+        lastStateSent = serialized;
+        setComponentValue(payload);
+      }
+    }
+
     function playBeep() {
       try {
-        if (!audioCtx) {
-          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        }
-        if (audioCtx.state === 'suspended') {
-          audioCtx.resume();
-        }
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
         const osc = audioCtx.createOscillator();
         const gainNode = audioCtx.createGain();
         osc.connect(gainNode);
@@ -165,9 +230,7 @@ HTML_CODE = """<!DOCTYPE html>
       const s = Math.max(0, sec);
       const whole = Math.floor(s).toString().padStart(2, '0');
       const ms = Math.round((s - Math.floor(s)) * 1000);
-      if (ms === 1000) {
-        return `${(Math.floor(s) + 1).toString().padStart(2, '0')}.000`;
-      }
+      if (ms === 1000) return `${(Math.floor(s) + 1).toString().padStart(2, '0')}.000`;
       return `${whole}.${ms.toString().padStart(3, '0')}`;
     }
 
@@ -176,7 +239,6 @@ HTML_CODE = """<!DOCTYPE html>
       const now = performance.now();
       const elapsed = (now - startTime) / 1000;
       display.innerText = formatTime(elapsed);
-
       if (elapsed >= target && !beepPlayed) {
         playBeep();
         beepPlayed = true;
@@ -184,15 +246,77 @@ HTML_CODE = """<!DOCTYPE html>
       requestAnimationFrame(updateTimer);
     }
 
+    function refreshUI() {
+      const savedAttempt = localStorage.getItem(`oyye_attempt_${today}`);
+      const hasStarted = localStorage.getItem(`oyye_started_${today}`);
+      const unlockedCode = localStorage.getItem(`oyye_unlocked_code_${today}`);
+
+      // Case 1: User already completed their 1 attempt today
+      if (savedAttempt !== null) {
+        const val = parseFloat(savedAttempt);
+        codeGateView.classList.add("hidden");
+        timerView.classList.add("hidden");
+        usedView.classList.remove("hidden");
+        usedTitle.innerText = "✅ Today's Attempt Completed!";
+        usedTitle.style.color = "#4CAF50";
+        usedTimeBox.innerText = formatTime(val) + " SEC";
+        setFrameHeight(210);
+        syncToPython({ status: "STOPPED", elapsed: val });
+        return;
+      }
+
+      // Case 2: User started timer and refreshed page to cheat
+      if (hasStarted === "true" && !isRunning) {
+        codeGateView.classList.add("hidden");
+        timerView.classList.add("hidden");
+        usedView.classList.remove("hidden");
+        usedTitle.innerText = "🚫 Attempt Locked for Today!";
+        usedTitle.style.color = "#ff4444";
+        usedTimeBox.innerText = "LOCKED";
+        usedDesc.innerText = "आपने टाइमर चालू करने के बाद पेज रिफ्रेश कर दिया। एक दिन में सिर्फ 1 ही चांस मिलता है, अब आप कल खेल सकते हैं!";
+        setFrameHeight(210);
+        syncToPython({ status: "REFRESH_LOCKED", elapsed: null });
+        return;
+      }
+
+      // Case 3: User unlocked today's valid code and is ready to play
+      if (unlockedCode === expectedCode) {
+        codeGateView.classList.add("hidden");
+        usedView.classList.add("hidden");
+        timerView.classList.remove("hidden");
+        setFrameHeight(265);
+        syncToPython({ status: "UNLOCKED", elapsed: null });
+        return;
+      }
+
+      // Case 4: Show Video Code Login Gate
+      timerView.classList.add("hidden");
+      usedView.classList.add("hidden");
+      codeGateView.classList.remove("hidden");
+      setFrameHeight(285);
+      syncToPython({ status: "LOCKED_CODE", elapsed: null });
+    }
+
+    unlockBtn.onclick = () => {
+      const entered = (secretInput.value || "").trim().toUpperCase();
+      if (!entered) {
+        codeMsg.innerText = "❌ कृपया वीडियो में बताया गया कोड डालें!";
+        return;
+      }
+      if (entered === expectedCode) {
+        localStorage.setItem(`oyye_unlocked_code_${today}`, expectedCode);
+        codeMsg.innerText = "";
+        refreshUI();
+      } else {
+        codeMsg.innerText = "❌ गलत कोड! @oyye_rider की आज की वीडियो ध्यान से देखें।";
+      }
+    };
+
     startBtn.onclick = () => {
       if (isRunning) return;
       try {
-        if (!audioCtx) {
-          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        }
-        if (audioCtx.state === 'suspended') {
-          audioCtx.resume();
-        }
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
       } catch (e) {}
 
       localStorage.setItem(`oyye_started_${today}`, "true");
@@ -212,13 +336,8 @@ HTML_CODE = """<!DOCTYPE html>
       stopBtn.disabled = true;
       const now = performance.now();
       const elapsed = Number(((now - startTime) / 1000).toFixed(3));
-      display.innerText = formatTime(elapsed);
-      
       localStorage.setItem(`oyye_attempt_${today}`, elapsed.toString());
-      statusMsg.innerText = "Timer stopped! Scroll down to submit your Instagram username.";
-      statusMsg.style.color = "#4CAF50";
-      
-      setComponentValue(elapsed);
+      refreshUI();
     };
 
     window.addEventListener("message", function(event) {
@@ -226,33 +345,14 @@ HTML_CODE = """<!DOCTYPE html>
       const args = event.data.args;
       target = Number(args.target || 10);
       today = String(args.today || "");
-
-      if (!initialized) {
-        initialized = true;
-        const savedAttempt = localStorage.getItem(`oyye_attempt_${today}`);
-        const hasStarted = localStorage.getItem(`oyye_started_${today}`);
-
-        if (savedAttempt !== null) {
-          const val = parseFloat(savedAttempt);
-          display.innerText = formatTime(val);
-          startBtn.disabled = true;
-          stopBtn.disabled = true;
-          statusMsg.innerText = "You have completed today's attempt on this device.";
-          statusMsg.style.color = "#4CAF50";
-          setComponentValue(val);
-        } else if (hasStarted === "true" && !isRunning) {
-          display.innerText = "LOCKED";
-          display.style.color = "#ff4444";
-          startBtn.disabled = true;
-          stopBtn.disabled = true;
-          statusMsg.innerText = "Attempt locked! Refreshing after starting is not allowed.";
-        }
+      expectedCode = String(args.expected_code || "OYYERIDER").trim().toUpperCase();
+      if (!isRunning) {
+        refreshUI();
       }
-      setFrameHeight(270);
     });
 
     setComponentReady();
-    setFrameHeight(270);
+    setFrameHeight(285);
   </script>
 </body>
 </html>
@@ -275,7 +375,7 @@ def setup_component_and_db():
     return conn
 
 conn = setup_component_and_db()
-timer_component = components.declare_component("timer_component", path=str(COMPONENT_DIR))
+timer_component = components.declare_component("timer_component_v3", path=str(COMPONENT_DIR))
 
 # --- CUSTOM CSS ---
 st.markdown("""
@@ -375,9 +475,7 @@ def get_daily_secret_code(date_str):
     row = c.fetchone()
     if row and row[0]:
         return str(row[0]).strip().upper()
-    # Default fallback from Streamlit Secrets or "OYYERIDER"
-    default_code = str(st.secrets.get("DAILY_CODE", "OYYERIDER")).strip().upper()
-    return default_code
+    return str(st.secrets.get("DAILY_CODE", "OYYERIDER")).strip().upper()
 
 def set_daily_secret_code(date_str, new_code):
     clean_code = new_code.strip().upper()
@@ -394,36 +492,19 @@ max_win_time = daily_target + WIN_TOLERANCE
 st.markdown("<p class='brand-title'>@oyye_rider <span class='gold-highlight'>Giveaway</span></p>", unsafe_allow_html=True)
 st.markdown("<a href='https://www.instagram.com/oyye_rider/' target='_blank' class='insta-btn'>📸 Watch Today's Reel on @oyye_rider</a>", unsafe_allow_html=True)
 
-# --- SESSION STATE FOR VIDEO CODE UNLOCK ---
-if "unlocked_day" not in st.session_state or st.session_state.unlocked_day != today_ist:
-    st.session_state.is_unlocked = False
-    st.session_state.unlocked_day = today_ist
+# --- RENDER UNIFIED CODE GATE + TIMER COMPONENT ---
+comp_state = timer_component(
+    target=daily_target,
+    today=today_ist,
+    expected_code=secret_video_code,
+    key="daily_gate_timer"
+)
 
-# --- STEP 1: VIDEO CODE LOGIN / LOCK SCREEN ---
-if not st.session_state.is_unlocked:
-    st.markdown(
-        '<div class="glass-card" style="text-align:center;">'
-        '<h2 style="color:#d4af37; margin-top:0;">🔒 Enter Today\'s Video Code</h2>'
-        '<p style="color:#ccc; font-size:0.95rem;">'
-        'आज के Giveaway में भाग लेने के लिए <b>@oyye_rider</b> का आज का वीडियो पूरा देखें और वीडियो में बताया गया Secret Code नीचे डालें!'
-        '</p></div>',
-        unsafe_allow_html=True
-    )
-    
-    with st.form("unlock_form"):
-        entered_code = st.text_input("🔑 Secret Video Code यहाँ पेस्ट करें:", placeholder="Enter code from today's video...")
-        unlock_btn = st.form_submit_button("🔓 UNLOCK CHALLENGE")
-        
-        if unlock_btn:
-            if entered_code.strip().upper() == secret_video_code:
-                st.session_state.is_unlocked = True
-                st.success("✅ Code Verified! Unlocking Challenge...")
-                st.rerun()
-            else:
-                st.error("❌ गलत कोड! कृपया @oyye_rider की आज की वीडियो ध्यान से देखें और सही कोड डालें।")
+status = comp_state.get("status", "LOCKED_CODE") if isinstance(comp_state, dict) else "LOCKED_CODE"
+elapsed_val = comp_state.get("elapsed") if isinstance(comp_state, dict) else None
 
-# --- STEP 2: MAIN GIVEAWAY PAGE (ONLY SHOWN AFTER CODE UNLOCK) ---
-else:
+# Show Target Card only once code is unlocked or attempt completed
+if status in ("UNLOCKED", "STOPPED", "REFRESH_LOCKED"):
     st.markdown(
         f'<div class="glass-card">'
         f'<h3 style="text-align:center; margin:0; color:#d4af37;">🎯 Today\'s Target Time</h3>'
@@ -434,62 +515,60 @@ else:
         unsafe_allow_html=True
     )
 
-    # --- RENDER TIMER COMPONENT ---
-    timer_value = timer_component(target=daily_target, today=today_ist, key="daily_timer")
+# --- ENTRY SUBMISSION LOGIC ---
+if "entry_submitted_day" not in st.session_state or st.session_state.entry_submitted_day != today_ist:
+    st.session_state.entry_submitted = False
+    st.session_state.entry_submitted_day = today_ist
 
-    # --- ENTRY SUBMISSION LOGIC ---
-    if "entry_submitted_day" not in st.session_state or st.session_state.entry_submitted_day != today_ist:
-        st.session_state.entry_submitted = False
-        st.session_state.entry_submitted_day = today_ist
+if status == "STOPPED" and elapsed_val is not None:
+    stopped_time = round(float(elapsed_val), 3)
+    difference = round(abs(stopped_time - daily_target), 3)
+    is_qualifying_hit = difference <= WIN_TOLERANCE
+    
+    border_col = "#4CAF50" if is_qualifying_hit else "#ff9800"
+    status_title = "🎯 WINNING ZONE HIT!" if is_qualifying_hit else "⏱️ Timer Stopped!"
+    
+    st.markdown(
+        f'<div class="glass-card" style="border-color: {border_col};">'
+        f'<h3 style="text-align:center; color:{border_col}; margin-top:0;">{status_title}</h3>'
+        f'<p style="text-align:center; font-family:monospace; font-size:1.15rem; margin-bottom:0;">'
+        f'Stopped Time: <b>{stopped_time:.3f}s</b><br>'
+        f'Target Time: <b>{daily_target:.3f}s</b><br>'
+        f'Difference: <b style="color:#ffd700;">{difference:.3f}s</b>'
+        f'</p></div>',
+        unsafe_allow_html=True
+    )
+    
+    if not st.session_state.entry_submitted:
+        with st.form("submission_form"):
+            st.write("लीडरबोर्ड में अपना नाम दर्ज करने के लिए Instagram Username डालें (सिर्फ 1 बार):")
+            insta_user = st.text_input("Instagram Username (with or without @)")
+            submitted = st.form_submit_button("Submit Entry")
+            
+            if submitted:
+                clean_user = insta_user.strip().lower().lstrip('@')
+                if not clean_user or not re.match(r'^[a-z0-9._]{1,30}$', clean_user):
+                    st.error("Please enter a valid Instagram username (letters, numbers, periods, underscores).")
+                else:
+                    timestamp = datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')
+                    c = conn.cursor()
+                    try:
+                        with conn:
+                            c.execute(
+                                "INSERT INTO entries (day, instagram, elapsed, created_at) VALUES (?, ?, ?, ?)",
+                                (today_ist, clean_user, stopped_time, timestamp)
+                            )
+                        st.session_state.entry_submitted = True
+                        st.session_state.current_user = clean_user
+                        st.success(f"Entry confirmed for @{clean_user}!")
+                        st.rerun()
+                    except sqlite3.IntegrityError:
+                        st.warning(f"@{clean_user} आज पहले ही सबमिट किया जा चुका है!")
+                        st.session_state.entry_submitted = True
+                        st.session_state.current_user = clean_user
 
-    if timer_value is not None:
-        stopped_time = round(float(timer_value), 3)
-        difference = round(abs(stopped_time - daily_target), 3)
-        is_qualifying_hit = difference <= WIN_TOLERANCE
-        
-        border_col = "#4CAF50" if is_qualifying_hit else "#ff9800"
-        status_title = "🎯 WINNING ZONE HIT!" if is_qualifying_hit else "⏱️ Timer Stopped!"
-        
-        st.markdown(
-            f'<div class="glass-card" style="border-color: {border_col};">'
-            f'<h3 style="text-align:center; color:{border_col}; margin-top:0;">{status_title}</h3>'
-            f'<p style="text-align:center; font-family:monospace; font-size:1.15rem; margin-bottom:0;">'
-            f'Stopped Time: <b>{stopped_time:.3f}s</b><br>'
-            f'Target Time: <b>{daily_target:.3f}s</b><br>'
-            f'Difference: <b style="color:#ffd700;">{difference:.3f}s</b>'
-            f'</p></div>',
-            unsafe_allow_html=True
-        )
-        
-        if not st.session_state.entry_submitted:
-            with st.form("submission_form"):
-                st.write("Enter your Instagram username to join today's leaderboard:")
-                insta_user = st.text_input("Instagram Username (with or without @)")
-                submitted = st.form_submit_button("Submit Entry")
-                
-                if submitted:
-                    clean_user = insta_user.strip().lower().lstrip('@')
-                    if not clean_user or not re.match(r'^[a-z0-9._]{1,30}$', clean_user):
-                        st.error("Please enter a valid Instagram username (letters, numbers, periods, underscores).")
-                    else:
-                        timestamp = datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')
-                        c = conn.cursor()
-                        try:
-                            with conn:
-                                c.execute(
-                                    "INSERT INTO entries (day, instagram, elapsed, created_at) VALUES (?, ?, ?, ?)",
-                                    (today_ist, clean_user, stopped_time, timestamp)
-                                )
-                            st.session_state.entry_submitted = True
-                            st.session_state.current_user = clean_user
-                            st.success(f"Entry confirmed for @{clean_user}!")
-                            st.rerun()
-                        except sqlite3.IntegrityError:
-                            st.warning(f"@{clean_user} has already submitted an entry today!")
-                            st.session_state.entry_submitted = True
-                            st.session_state.current_user = clean_user
-
-    # --- LEADERBOARD & WINNER LOGIC ---
+# --- LEADERBOARD & WINNER LOGIC (SHOWN ONLY AFTER UNLOCK OR ATTEMPT) ---
+if status in ("UNLOCKED", "STOPPED", "REFRESH_LOCKED"):
     st.markdown("### 🏆 Today's Top 50 Leaderboard")
 
     c = conn.cursor()
@@ -555,4 +634,46 @@ else:
                 f'<h3 style="color:#4CAF50; margin-top:0;">🎉 CONGRATULATIONS @{top_user}!</h3>'
                 f'<p style="font-size:0.95rem;">You hit the winning zone (<b>±0.001s</b>) and are <b>Rank #1</b>!</p>'
                 f'<p style="font-family:monospace; font-size:0.9rem;">'
-                f'Stopped: {top_elapsed:.3f}s | Target: {daily_target:.3f}s |
+                f'Stopped: {top_elapsed:.3f}s | Target: {daily_target:.3f}s | Diff: {top_diff:.3f}s'
+                f'</p>'
+                f'<a href="{wa_url}" target="_blank" style="display:inline-block; background:#25D366; color:white; padding:12px 24px; border-radius:8px; text-decoration:none; font-weight:bold; margin-top:8px;">'
+                f'💬 Claim Prize on WhatsApp'
+                f'</a></div>',
+                unsafe_allow_html=True
+            )
+
+        # Render Top 50 Table
+        rows_list = ['<div class="glass-card" style="padding:5px 0;">']
+        for idx, (insta, elapsed_item, diff_val, created_at) in enumerate(leaderboard):
+            rank = idx + 1
+            medal = "🥇" if rank == 1 else "🥈" if rank == 2 else "🥉" if rank == 3 else f"#{rank}"
+            rank_class = f"rank-{rank}" if rank <= 3 else ""
+            diff_color = "#4CAF50" if diff_val <= WIN_TOLERANCE else "#d4af37"
+            row_str = (
+                f'<div class="leaderboard-row">'
+                f'<div class="{rank_class}" style="width:16%;">{medal}</div>'
+                f'<div style="width:42%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">@{insta}</div>'
+                f'<div style="width:21%; text-align:right; color:#aaa;">{elapsed_item:.3f}s</div>'
+                f'<div style="width:21%; text-align:right; color:{diff_color};">Δ {diff_val:.3f}s</div>'
+                f'</div>'
+            )
+            rows_list.append(row_str)
+        rows_list.append('</div>')
+        st.markdown("".join(rows_list), unsafe_allow_html=True)
+
+# --- CREATOR ADMIN PANEL ---
+st.markdown("<br>", unsafe_allow_html=True)
+with st.expander("⚙️ Creator Admin Panel"):
+    admin_pin_secret = str(st.secrets.get("ADMIN_PIN", "9999"))
+    entered_pin = st.text_input("Admin PIN", type="password")
+    new_video_code = st.text_input("Set Today's New Video Code (e.g., RIDER77)")
+    if st.button("Update Today's Code"):
+        if entered_pin == admin_pin_secret:
+            if new_video_code.strip():
+                set_daily_secret_code(today_ist, new_video_code)
+                st.success(f"✅ Today's Video Code updated to: {new_video_code.strip().upper()}")
+                st.rerun()
+            else:
+                st.warning("Please enter a valid code.")
+        else:
+            st.error("❌ Invalid Admin PIN!")
