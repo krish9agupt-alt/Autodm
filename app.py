@@ -25,8 +25,8 @@ def get_secret_safe(key, default_val):
         pass
     return default_val
 
-# --- CREATE TIMER & CODE GATE COMPONENT (V7) ---
-COMPONENT_DIR = Path(__file__).parent / "timer_component_v7"
+# --- CREATE TIMER & CODE GATE COMPONENT (V8) ---
+COMPONENT_DIR = Path(__file__).parent / "timer_component_v8"
 INDEX_HTML = COMPONENT_DIR / "index.html"
 
 HTML_CODE = """<!DOCTYPE html>
@@ -380,7 +380,7 @@ def setup_component_and_db():
     return conn
 
 conn = setup_component_and_db()
-timer_component = components.declare_component("timer_component_v7", path=str(COMPONENT_DIR))
+timer_component = components.declare_component("timer_component_v8", path=str(COMPONENT_DIR))
 
 # --- CUSTOM CSS ---
 st.markdown("""
@@ -522,6 +522,8 @@ if "show_admin" not in st.session_state:
     st.session_state.show_admin = False
 if "admin_authenticated" not in st.session_state:
     st.session_state.admin_authenticated = False
+if "test_mode" not in st.session_state:
+    st.session_state.test_mode = False
 
 title_clicked = st.button("🔥 @oyye_rider — 10x Giveaway 🔥", use_container_width=True)
 if title_clicked:
@@ -532,16 +534,15 @@ if title_clicked:
 st.markdown(f"<a href='https://www.instagram.com/oyye_rider/' target='_blank' class='insta-btn'>📸 Follow @oyye_rider on Instagram</a>", unsafe_allow_html=True)
 st.markdown(f"<a href='{insta_channel_link}' target='_blank' class='channel-btn'>📢 Join Instagram Broadcast Channel</a>", unsafe_allow_html=True)
 
-# --- SECURE CREATOR ADMIN PANEL ---
+# --- SECURE CREATOR ADMIN PANEL (WITH DEMO TEST MODE) ---
 if st.session_state.show_admin:
     st.markdown('<div class="glass-card" style="border-color: #d4af37;">', unsafe_allow_html=True)
     st.markdown("### ⚙️ Creator Admin Panel")
     
     admin_pin_secret = get_db_setting("ADMIN_PIN", "#KRISH91")
     
-    # Step 1: Ask for password first if not authenticated
     if not st.session_state.admin_authenticated:
-        entered_pin = st.text_input("Enter Admin Password", type="password", placeholder="Enter password (#KRISH91)...")
+        entered_pin = st.text_input("Enter Admin Password", type="password", placeholder="Enter password...")
         if st.button("Verify Password"):
             if entered_pin == admin_pin_secret:
                 st.session_state.admin_authenticated = True
@@ -550,8 +551,18 @@ if st.session_state.show_admin:
             else:
                 st.error("❌ Invalid Admin Password!")
     else:
-        # Step 2: Show settings only AFTER correct password verification
         st.success("🔓 Authenticated Successfully")
+        
+        # DEMO TEST MODE TOGGLE FOR ADMIN CHECKING
+        st.markdown("---")
+        st.markdown("#### 🧪 Admin Demo & Testing")
+        if st.button("Test Win Popup & WhatsApp Demo (On/Off)"):
+            st.session_state.test_mode = not st.session_state.test_mode
+            st.rerun()
+        if st.session_state.test_mode:
+            st.info("💡 Test Mode Active: नीचे विनर पॉप-अप और WhatsApp डेमो दिखाया जा रहा है!")
+        st.markdown("---")
+        
         new_video_code = st.text_input("Set Today's New Video Code (e.g., RIDER77)")
         new_channel_link = st.text_input("Set Instagram Channel Link", value=insta_channel_link)
         new_wa_num = st.text_input("Set Admin WhatsApp Number (with Country Code)", value=admin_whatsapp_num)
@@ -572,12 +583,26 @@ if st.session_state.show_admin:
             
     st.markdown('</div>', unsafe_allow_html=True)
 
+# --- DEMO TEST WINNER POPUP VIEW (IF ADMIN CLICKS TEST MODE) ---
+if st.session_state.test_mode:
+    st.balloons()
+    demo_wa_url = f"https://wa.me/{admin_whatsapp_num}?text=" + urllib.parse.quote("Hi Admin! I won the 10x Timer Giveaway! [DEMO TEST]")
+    st.markdown(
+        f'<div class="glass-card" style="border: 2px solid #25D366; background: #06210e; text-align:center;">'
+        f'<h3 style="color:#4CAF50; margin-top:0;">🎉 [DEMO] BINGO! YOU WON 10x PRIZE!</h3>'
+        f'<p style="font-size:1.1rem; color:#fff;">यह विनर पॉप-अप और WhatsApp रीडायरेक्ट का डेमो है!</p>'
+        f'<a href="{demo_wa_url}" target="_blank" style="display:inline-block; background:#25D366; color:white; padding:14px 28px; border-radius:8px; text-decoration:none; font-weight:bold; font-size:1.1rem; margin-top:8px;">'
+        f'💬 [DEMO] Connect with Admin on WhatsApp'
+        f'</a></div>',
+        unsafe_allow_html=True
+    )
+
 # --- RENDER COMPONENT ---
 comp_state = timer_component(
     target=daily_target,
     today=today_ist,
     expected_code=secret_video_code,
-    key="daily_gate_timer_v7"
+    key="daily_gate_timer_v8"
 )
 
 status = comp_state.get("status", "LOCKED_CODE") if isinstance(comp_state, dict) else "LOCKED_CODE"
