@@ -267,6 +267,7 @@ def setup_component_and_db():
     conn = sqlite3.connect('giveaway.db', check_same_thread=False)
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS targets (day TEXT PRIMARY KEY, target INTEGER)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS daily_codes (day TEXT PRIMARY KEY, code TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS entries 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, day TEXT, instagram TEXT, 
                   elapsed REAL, created_at TEXT, UNIQUE(day, instagram))''')
@@ -276,7 +277,7 @@ def setup_component_and_db():
 conn = setup_component_and_db()
 timer_component = components.declare_component("timer_component", path=str(COMPONENT_DIR))
 
-# --- CUSTOM CSS (Dark Gaming Theme + Hide Bottom-Right Icons) ---
+# --- CUSTOM CSS ---
 st.markdown("""
 <style>
     [data-testid="stAppViewContainer"] { background-color: #050505; color: #ffffff; }
@@ -288,7 +289,6 @@ st.markdown("""
         display: none !important;
         visibility: hidden !important;
     }
-    /* Hide Bottom-Right Streamlit Cloud Badges & Icons */
     .viewerBadge_container__r5tak,
     .viewerBadge_link__qRIco,
     .styles_viewerBadge__CvC9N,
@@ -352,10 +352,10 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- TIMEZONE & DAILY TARGET ---
+# --- TIMEZONE, DAILY TARGET & DAILY VIDEO CODE ---
 IST = ZoneInfo('Asia/Kolkata')
 today_ist = datetime.now(IST).strftime('%Y-%m-%d')
-WIN_TOLERANCE = 0.001  # Exact target (0.000) or +/- 0.001s
+WIN_TOLERANCE = 0.001
 
 def get_daily_target(date_str):
     c = conn.cursor()
@@ -369,169 +369,190 @@ def get_daily_target(date_str):
     c.execute("SELECT target FROM targets WHERE day = ?", (date_str,))
     return int(c.fetchone()[0])
 
+def get_daily_secret_code(date_str):
+    c = conn.cursor()
+    c.execute("SELECT code FROM daily_codes WHERE day = ?", (date_str,))
+    row = c.fetchone()
+    if row and row[0]:
+        return str(row[0]).strip().upper()
+    # Default fallback from Streamlit Secrets or "OYYERIDER"
+    default_code = str(st.secrets.get("DAILY_CODE", "OYYERIDER")).strip().upper()
+    return default_code
+
+def set_daily_secret_code(date_str, new_code):
+    clean_code = new_code.strip().upper()
+    c = conn.cursor()
+    c.execute("INSERT OR REPLACE INTO daily_codes (day, code) VALUES (?, ?)", (date_str, clean_code))
+    conn.commit()
+
 daily_target = get_daily_target(today_ist)
+secret_video_code = get_daily_secret_code(today_ist)
 min_win_time = daily_target - WIN_TOLERANCE
 max_win_time = daily_target + WIN_TOLERANCE
 
 # --- UI HEADER ---
 st.markdown("<p class='brand-title'>@oyye_rider <span class='gold-highlight'>Giveaway</span></p>", unsafe_allow_html=True)
-st.markdown("<a href='https://www.instagram.com/oyye_rider/' target='_blank' class='insta-btn'>📸 Follow @oyye_rider on Instagram</a>", unsafe_allow_html=True)
+st.markdown("<a href='https://www.instagram.com/oyye_rider/' target='_blank' class='insta-btn'>📸 Watch Today's Reel on @oyye_rider</a>", unsafe_allow_html=True)
 
-st.markdown(
-    f'<div class="glass-card">'
-    f'<h3 style="text-align:center; margin:0; color:#d4af37;">🎯 Today\'s Target Time</h3>'
-    f'<div class="target-box"><span class="target-time">{daily_target:.3f} SEC</span></div>'
-    f'<p style="text-align:center; color:#ccc; font-size: 0.9rem; margin:0;">'
-    f'Win Rule: Stop at exact <b>{daily_target:.3f}s</b> or within <b>±0.001s</b> (<b>{min_win_time:.3f}s – {max_win_time:.3f}s</b>)!'
-    f'</p></div>',
-    unsafe_allow_html=True
-)
+# --- SESSION STATE FOR VIDEO CODE UNLOCK ---
+if "unlocked_day" not in st.session_state or st.session_state.unlocked_day != today_ist:
+    st.session_state.is_unlocked = False
+    st.session_state.unlocked_day = today_ist
 
-# --- RENDER TIMER COMPONENT ---
-timer_value = timer_component(target=daily_target, today=today_ist, key="daily_timer")
-
-# --- ENTRY SUBMISSION LOGIC ---
-if "entry_submitted_day" not in st.session_state or st.session_state.entry_submitted_day != today_ist:
-    st.session_state.entry_submitted = False
-    st.session_state.entry_submitted_day = today_ist
-
-if timer_value is not None:
-    stopped_time = round(float(timer_value), 3)
-    difference = round(abs(stopped_time - daily_target), 3)
-    is_qualifying_hit = difference <= WIN_TOLERANCE
-    
-    border_col = "#4CAF50" if is_qualifying_hit else "#ff9800"
-    status_title = "🎯 WINNING ZONE HIT!" if is_qualifying_hit else "⏱️ Timer Stopped!"
-    
+# --- STEP 1: VIDEO CODE LOGIN / LOCK SCREEN ---
+if not st.session_state.is_unlocked:
     st.markdown(
-        f'<div class="glass-card" style="border-color: {border_col};">'
-        f'<h3 style="text-align:center; color:{border_col}; margin-top:0;">{status_title}</h3>'
-        f'<p style="text-align:center; font-family:monospace; font-size:1.15rem; margin-bottom:0;">'
-        f'Stopped Time: <b>{stopped_time:.3f}s</b><br>'
-        f'Target Time: <b>{daily_target:.3f}s</b><br>'
-        f'Difference: <b style="color:#ffd700;">{difference:.3f}s</b>'
-        f'</p></div>',
+        '<div class="glass-card" style="text-align:center;">'
+        '<h2 style="color:#d4af37; margin-top:0;">🔒 Enter Today\'s Video Code</h2>'
+        '<p style="color:#ccc; font-size:0.95rem;">'
+        'आज के Giveaway में भाग लेने के लिए <b>@oyye_rider</b> का आज का वीडियो पूरा देखें और वीडियो में बताया गया Secret Code नीचे डालें!'
+        '</p></div>',
         unsafe_allow_html=True
     )
     
-    if not st.session_state.entry_submitted:
-        with st.form("submission_form"):
-            st.write("Enter your Instagram username to join today's leaderboard:")
-            insta_user = st.text_input("Instagram Username (with or without @)")
-            submitted = st.form_submit_button("Submit Entry")
-            
-            if submitted:
-                clean_user = insta_user.strip().lower().lstrip('@')
-                if not clean_user or not re.match(r'^[a-z0-9._]{1,30}$', clean_user):
-                    st.error("Please enter a valid Instagram username (letters, numbers, periods, underscores).")
-                else:
-                    timestamp = datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')
-                    c = conn.cursor()
-                    try:
-                        with conn:
-                            c.execute(
-                                "INSERT INTO entries (day, instagram, elapsed, created_at) VALUES (?, ?, ?, ?)",
-                                (today_ist, clean_user, stopped_time, timestamp)
-                            )
-                        st.session_state.entry_submitted = True
-                        st.session_state.current_user = clean_user
-                        st.success(f"Entry confirmed for @{clean_user}!")
-                        st.rerun()
-                    except sqlite3.IntegrityError:
-                        st.warning(f"@{clean_user} has already submitted an entry today!")
-                        st.session_state.entry_submitted = True
-                        st.session_state.current_user = clean_user
+    with st.form("unlock_form"):
+        entered_code = st.text_input("🔑 Secret Video Code यहाँ पेस्ट करें:", placeholder="Enter code from today's video...")
+        unlock_btn = st.form_submit_button("🔓 UNLOCK CHALLENGE")
+        
+        if unlock_btn:
+            if entered_code.strip().upper() == secret_video_code:
+                st.session_state.is_unlocked = True
+                st.success("✅ Code Verified! Unlocking Challenge...")
+                st.rerun()
+            else:
+                st.error("❌ गलत कोड! कृपया @oyye_rider की आज की वीडियो ध्यान से देखें और सही कोड डालें।")
 
-# --- LEADERBOARD & WINNER LOGIC ---
-st.markdown("### 🏆 Today's Top 50 Leaderboard")
-
-c = conn.cursor()
-c.execute("""
-    SELECT instagram, elapsed, ROUND(ABS(elapsed - ?), 3) AS diff, created_at 
-    FROM entries 
-    WHERE day = ? 
-    ORDER BY diff ASC, created_at ASC 
-    LIMIT 50
-""", (daily_target, today_ist))
-leaderboard = c.fetchall()
-
-if not leaderboard:
-    st.info("No entries yet for today. Stop the timer at the exact target (±0.001s) to win!")
+# --- STEP 2: MAIN GIVEAWAY PAGE (ONLY SHOWN AFTER CODE UNLOCK) ---
 else:
-    top_user, top_elapsed, top_diff, top_time = leaderboard[0]
-    has_qualifying_winner = top_diff <= WIN_TOLERANCE
-    
-    if has_qualifying_winner:
-        st.markdown(
-            f'<div class="glass-card" style="border-color: #ffd700; text-align:center;">'
-            f'<div style="color:#ffd700; font-weight:bold; font-size:1.1rem;">👑 CURRENT WINNER (±0.001s QUALIFIED)</div>'
-            f'<div style="font-size:1.5rem; font-weight:900; margin:6px 0;">@{top_user}</div>'
-            f'<div style="font-family:monospace; color:#ccc;">'
-            f'Stopped: <b>{top_elapsed:.3f}s</b> | Diff: <b style="color:#4CAF50;">{top_diff:.3f}s</b>'
-            f'</div></div>',
-            unsafe_allow_html=True
-        )
-    else:
-        st.markdown(
-            f'<div class="glass-card" style="border-color: #ff4444; text-align:center;">'
-            f'<div style="color:#ff4444; font-weight:bold; font-size:1.1rem;">⏳ NO WINNER YET TODAY</div>'
-            f'<div style="font-size:0.95rem; color:#ccc; margin:6px 0;">'
-            f'To win, stop at exact <b>{daily_target:.3f}s</b> or within <b>±0.001s</b> (<b>{min_win_time:.3f}s – {max_win_time:.3f}s</b>).'
-            f'</div>'
-            f'<div style="font-family:monospace; font-size:0.85rem; color:#999;">'
-            f'Closest so far: @{top_user} ({top_elapsed:.3f}s | Diff: {top_diff:.3f}s)'
-            f'</div></div>',
-            unsafe_allow_html=True
-        )
-
-    # Show Winner Popup & WhatsApp Claim Button ONLY if #1 AND within 0.001s of target
-    is_qualifying_winner = (
-        has_qualifying_winner and
-        st.session_state.get("entry_submitted") and 
-        st.session_state.get("current_user") == top_user
+    st.markdown(
+        f'<div class="glass-card">'
+        f'<h3 style="text-align:center; margin:0; color:#d4af37;">🎯 Today\'s Target Time</h3>'
+        f'<div class="target-box"><span class="target-time">{daily_target:.3f} SEC</span></div>'
+        f'<p style="text-align:center; color:#ccc; font-size: 0.9rem; margin:0;">'
+        f'Win Rule: Stop at exact <b>{daily_target:.3f}s</b> or within <b>±0.001s</b> (<b>{min_win_time:.3f}s – {max_win_time:.3f}s</b>)!'
+        f'</p></div>',
+        unsafe_allow_html=True
     )
 
-    if is_qualifying_winner:
-        st.balloons()
-        admin_wa = st.secrets.get("ADMIN_WHATSAPP", "910000000000")
-        wa_msg = (
-            f"Hi @oyye_rider Admin! I hit the winning target in the Daily Timer Giveaway!\n\n"
-            f"Instagram: @{top_user}\n"
-            f"Stopped Time: {top_elapsed:.3f}s\n"
-            f"Daily Target: {daily_target:.3f}s\n"
-            f"Difference: {top_diff:.3f}s\n"
-            f"Date: {today_ist}"
-        )
-        wa_url = f"https://wa.me/{admin_wa}?text={urllib.parse.quote(wa_msg)}"
+    # --- RENDER TIMER COMPONENT ---
+    timer_value = timer_component(target=daily_target, today=today_ist, key="daily_timer")
+
+    # --- ENTRY SUBMISSION LOGIC ---
+    if "entry_submitted_day" not in st.session_state or st.session_state.entry_submitted_day != today_ist:
+        st.session_state.entry_submitted = False
+        st.session_state.entry_submitted_day = today_ist
+
+    if timer_value is not None:
+        stopped_time = round(float(timer_value), 3)
+        difference = round(abs(stopped_time - daily_target), 3)
+        is_qualifying_hit = difference <= WIN_TOLERANCE
+        
+        border_col = "#4CAF50" if is_qualifying_hit else "#ff9800"
+        status_title = "🎯 WINNING ZONE HIT!" if is_qualifying_hit else "⏱️ Timer Stopped!"
         
         st.markdown(
-            f'<div class="glass-card" style="border: 2px solid #25D366; background: #06210e; text-align:center;">'
-            f'<h3 style="color:#4CAF50; margin-top:0;">🎉 CONGRATULATIONS @{top_user}!</h3>'
-            f'<p style="font-size:0.95rem;">You hit the winning zone (<b>±0.001s</b>) and are <b>Rank #1</b>!</p>'
-            f'<p style="font-family:monospace; font-size:0.9rem;">'
-            f'Stopped: {top_elapsed:.3f}s | Target: {daily_target:.3f}s | Diff: {top_diff:.3f}s'
-            f'</p>'
-            f'<a href="{wa_url}" target="_blank" style="display:inline-block; background:#25D366; color:white; padding:12px 24px; border-radius:8px; text-decoration:none; font-weight:bold; margin-top:8px;">'
-            f'💬 Claim Prize on WhatsApp'
-            f'</a></div>',
+            f'<div class="glass-card" style="border-color: {border_col};">'
+            f'<h3 style="text-align:center; color:{border_col}; margin-top:0;">{status_title}</h3>'
+            f'<p style="text-align:center; font-family:monospace; font-size:1.15rem; margin-bottom:0;">'
+            f'Stopped Time: <b>{stopped_time:.3f}s</b><br>'
+            f'Target Time: <b>{daily_target:.3f}s</b><br>'
+            f'Difference: <b style="color:#ffd700;">{difference:.3f}s</b>'
+            f'</p></div>',
             unsafe_allow_html=True
         )
+        
+        if not st.session_state.entry_submitted:
+            with st.form("submission_form"):
+                st.write("Enter your Instagram username to join today's leaderboard:")
+                insta_user = st.text_input("Instagram Username (with or without @)")
+                submitted = st.form_submit_button("Submit Entry")
+                
+                if submitted:
+                    clean_user = insta_user.strip().lower().lstrip('@')
+                    if not clean_user or not re.match(r'^[a-z0-9._]{1,30}$', clean_user):
+                        st.error("Please enter a valid Instagram username (letters, numbers, periods, underscores).")
+                    else:
+                        timestamp = datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')
+                        c = conn.cursor()
+                        try:
+                            with conn:
+                                c.execute(
+                                    "INSERT INTO entries (day, instagram, elapsed, created_at) VALUES (?, ?, ?, ?)",
+                                    (today_ist, clean_user, stopped_time, timestamp)
+                                )
+                            st.session_state.entry_submitted = True
+                            st.session_state.current_user = clean_user
+                            st.success(f"Entry confirmed for @{clean_user}!")
+                            st.rerun()
+                        except sqlite3.IntegrityError:
+                            st.warning(f"@{clean_user} has already submitted an entry today!")
+                            st.session_state.entry_submitted = True
+                            st.session_state.current_user = clean_user
 
-    # Render Top 50 Table (NO LEADING SPACES so Markdown never creates a code block!)
-    rows_list = ['<div class="glass-card" style="padding:5px 0;">']
-    for idx, (insta, elapsed_val, diff_val, created_at) in enumerate(leaderboard):
-        rank = idx + 1
-        medal = "🥇" if rank == 1 else "🥈" if rank == 2 else "🥉" if rank == 3 else f"#{rank}"
-        rank_class = f"rank-{rank}" if rank <= 3 else ""
-        diff_color = "#4CAF50" if diff_val <= WIN_TOLERANCE else "#d4af37"
-        row_str = (
-            f'<div class="leaderboard-row">'
-            f'<div class="{rank_class}" style="width:16%;">{medal}</div>'
-            f'<div style="width:42%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">@{insta}</div>'
-            f'<div style="width:21%; text-align:right; color:#aaa;">{elapsed_val:.3f}s</div>'
-            f'<div style="width:21%; text-align:right; color:{diff_color};">Δ {diff_val:.3f}s</div>'
-            f'</div>'
+    # --- LEADERBOARD & WINNER LOGIC ---
+    st.markdown("### 🏆 Today's Top 50 Leaderboard")
+
+    c = conn.cursor()
+    c.execute("""
+        SELECT instagram, elapsed, ROUND(ABS(elapsed - ?), 3) AS diff, created_at 
+        FROM entries 
+        WHERE day = ? 
+        ORDER BY diff ASC, created_at ASC 
+        LIMIT 50
+    """, (daily_target, today_ist))
+    leaderboard = c.fetchall()
+
+    if not leaderboard:
+        st.info("No entries yet for today. Stop the timer at the exact target (±0.001s) to win!")
+    else:
+        top_user, top_elapsed, top_diff, top_time = leaderboard[0]
+        has_qualifying_winner = top_diff <= WIN_TOLERANCE
+        
+        if has_qualifying_winner:
+            st.markdown(
+                f'<div class="glass-card" style="border-color: #ffd700; text-align:center;">'
+                f'<div style="color:#ffd700; font-weight:bold; font-size:1.1rem;">👑 CURRENT WINNER (±0.001s QUALIFIED)</div>'
+                f'<div style="font-size:1.5rem; font-weight:900; margin:6px 0;">@{top_user}</div>'
+                f'<div style="font-family:monospace; color:#ccc;">'
+                f'Stopped: <b>{top_elapsed:.3f}s</b> | Diff: <b style="color:#4CAF50;">{top_diff:.3f}s</b>'
+                f'</div></div>',
+                unsafe_allow_html=True
+            )
+        else:
+            st.markdown(
+                f'<div class="glass-card" style="border-color: #ff4444; text-align:center;">'
+                f'<div style="color:#ff4444; font-weight:bold; font-size:1.1rem;">⏳ NO WINNER YET TODAY</div>'
+                f'<div style="font-size:0.95rem; color:#ccc; margin:6px 0;">'
+                f'To win, stop at exact <b>{daily_target:.3f}s</b> or within <b>±0.001s</b> (<b>{min_win_time:.3f}s – {max_win_time:.3f}s</b>).'
+                f'</div>'
+                f'<div style="font-family:monospace; font-size:0.85rem; color:#999;">'
+                f'Closest so far: @{top_user} ({top_elapsed:.3f}s | Diff: {top_diff:.3f}s)'
+                f'</div></div>',
+                unsafe_allow_html=True
+            )
+
+        is_qualifying_winner = (
+            has_qualifying_winner and
+            st.session_state.get("entry_submitted") and 
+            st.session_state.get("current_user") == top_user
         )
-        rows_list.append(row_str)
-    rows_list.append('</div>')
-    st.markdown("".join(rows_list), unsafe_allow_html=True)
+
+        if is_qualifying_winner:
+            st.balloons()
+            admin_wa = st.secrets.get("ADMIN_WHATSAPP", "910000000000")
+            wa_msg = (
+                f"Hi @oyye_rider Admin! I hit the winning target in the Daily Timer Giveaway!\n\n"
+                f"Instagram: @{top_user}\n"
+                f"Stopped Time: {top_elapsed:.3f}s\n"
+                f"Daily Target: {daily_target:.3f}s\n"
+                f"Difference: {top_diff:.3f}s\n"
+                f"Date: {today_ist}"
+            )
+            wa_url = f"https://wa.me/{admin_wa}?text={urllib.parse.quote(wa_msg)}"
+            
+            st.markdown(
+                f'<div class="glass-card" style="border: 2px solid #25D366; background: #06210e; text-align:center;">'
+                f'<h3 style="color:#4CAF50; margin-top:0;">🎉 CONGRATULATIONS @{top_user}!</h3>'
+                f'<p style="font-size:0.95rem;">You hit the winning zone (<b>±0.001s</b>) and are <b>Rank #1</b>!</p>'
+                f'<p style="font-family:monospace; font-size:0.9rem;">'
+                f'Stopped: {top_elapsed:.3f}s | Target: {daily_target:.3f}s |
