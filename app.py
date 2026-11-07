@@ -10,13 +10,13 @@ from pathlib import Path
 
 # --- PAGE CONFIG ---
 st.set_page_config(
-    page_title="Oyye Rider | Daily Timer Challenge",
+    page_title="Oyye Rider | 10x Timer Giveaway",
     page_icon="⏱️",
     layout="centered",
     initial_sidebar_state="collapsed"
 )
 
-# --- SAFE SECRETS HELPER (PREVENTS "OH NO" CRASH IF SECRETS ARE NOT SET) ---
+# --- SAFE SECRETS HELPER ---
 def get_secret_safe(key, default_val):
     try:
         if key in st.secrets:
@@ -25,8 +25,8 @@ def get_secret_safe(key, default_val):
         pass
     return default_val
 
-# --- CREATE TIMER & CODE GATE COMPONENT (V3) ---
-COMPONENT_DIR = Path(__file__).parent / "timer_component_v3"
+# --- CREATE TIMER & CODE GATE COMPONENT (V5) ---
+COMPONENT_DIR = Path(__file__).parent / "timer_component_v5"
 INDEX_HTML = COMPONENT_DIR / "index.html"
 
 HTML_CODE = """<!DOCTYPE html>
@@ -150,7 +150,7 @@ HTML_CODE = """<!DOCTYPE html>
   <!-- VIEW 1: DAILY VIDEO CODE GATE -->
   <div id="code-gate-view" class="card hidden">
     <h3>🔒 Enter Today's Video Code</h3>
-    <p>आज के Giveaway में भाग लेने के लिए <b>@oyye_rider</b> की आज की वीडियो देखें और उसमें बताया गया कोड नीचे डालें।<br><span style="color:#ff9800; font-size:0.82rem;">(ध्यान रहे: आप एक दिन में सिर्फ 1 बार ही इस कोड और वेबसाइट का उपयोग कर सकते हैं!)</span></p>
+    <p><b>@oyye_rider</b> की आज की वीडियो देखें और उसमें बताया गया Secret Code यहाँ डालें ताकि आप 10x Winning Prize जीत सकें!<br><span style="color:#ff9800; font-size:0.82rem;">(नोट: एक दिन में सिर्फ 1 ही चांस मिलेगा!)</span></p>
     <input type="text" id="secret-input" placeholder="ENTER VIDEO CODE..." autocomplete="off" />
     <div class="btn-container">
       <button id="unlock-btn" class="gold-btn">🔓 UNLOCK CHALLENGE</button>
@@ -168,11 +168,11 @@ HTML_CODE = """<!DOCTYPE html>
     <div id="status-msg"></div>
   </div>
 
-  <!-- VIEW 3: ALREADY USED TODAY (1 DAY 1 ATTEMPT LOCK) -->
+  <!-- VIEW 3: ALREADY USED TODAY -->
   <div id="used-view" class="card hidden">
     <h3 id="used-title" style="color:#4CAF50;">✅ Today's Attempt Completed!</h3>
     <div id="used-time-box" style="font-family:monospace; font-size:1.8rem; color:#d4af37; font-weight:bold; margin:10px 0;"></div>
-    <p id="used-desc">आप आज इस मोबाइल पर अपना 1 बार का चांस और कोड इस्तेमाल कर चुके हैं। अब आप कल के नए वीडियो कोड के साथ दोबारा खेल सकते हैं!</p>
+    <p id="used-desc">आप आज अपना 1 बार का प्रयास कर चुके हैं। कल नए वीडियो कोड के साथ फिर आएं!</p>
   </div>
 
   <script>
@@ -184,7 +184,7 @@ HTML_CODE = """<!DOCTYPE html>
     function setFrameHeight(height) { sendMessageToStreamlitClient("streamlit:setFrameHeight", {height: height}); }
     function setComponentValue(value) { sendMessageToStreamlitClient("streamlit:setComponentValue", {value: value}); }
 
-    let target = 10;
+    let target = 5;
     let today = "";
     let expectedCode = "";
     let startTime = 0;
@@ -265,7 +265,7 @@ HTML_CODE = """<!DOCTYPE html>
         codeGateView.classList.add("hidden");
         timerView.classList.add("hidden");
         usedView.classList.remove("hidden");
-        usedTitle.innerText = "✅ Today's Attempt Completed!";
+        usedTitle.innerText = "✅ Attempt Finished!";
         usedTitle.style.color = "#4CAF50";
         usedTimeBox.innerText = formatTime(val) + " SEC";
         setFrameHeight(210);
@@ -277,10 +277,10 @@ HTML_CODE = """<!DOCTYPE html>
         codeGateView.classList.add("hidden");
         timerView.classList.add("hidden");
         usedView.classList.remove("hidden");
-        usedTitle.innerText = "🚫 Attempt Locked for Today!";
+        usedTitle.innerText = "🚫 Attempt Locked!";
         usedTitle.style.color = "#ff4444";
         usedTimeBox.innerText = "LOCKED";
-        usedDesc.innerText = "आपने टाइमर चालू करने के बाद पेज रिफ्रेश कर दिया। एक दिन में सिर्फ 1 ही चांस मिलता है, अब आप कल खेल सकते हैं!";
+        usedDesc.innerText = "पेज रिफ्रेश करने के कारण आपका आज का चांस लॉक हो गया है।";
         setFrameHeight(210);
         syncToPython({ status: "REFRESH_LOCKED", elapsed: null });
         return;
@@ -305,7 +305,7 @@ HTML_CODE = """<!DOCTYPE html>
     unlockBtn.onclick = () => {
       const entered = (secretInput.value || "").trim().toUpperCase();
       if (!entered) {
-        codeMsg.innerText = "❌ कृपया वीडियो में बताया गया कोड डालें!";
+        codeMsg.innerText = "❌ कृपया वीडियो कोड डालें!";
         return;
       }
       if (entered === expectedCode) {
@@ -313,7 +313,7 @@ HTML_CODE = """<!DOCTYPE html>
         codeMsg.innerText = "";
         refreshUI();
       } else {
-        codeMsg.innerText = "❌ गलत कोड! @oyye_rider की आज की वीडियो ध्यान से देखें।";
+        codeMsg.innerText = "❌ गलत कोड! वीडियो ध्यान से देखें।";
       }
     };
 
@@ -348,7 +348,7 @@ HTML_CODE = """<!DOCTYPE html>
     window.addEventListener("message", function(event) {
       if (event.data.type !== "streamlit:render") return;
       const args = event.data.args;
-      target = Number(args.target || 10);
+      target = Number(args.target || 5);
       today = String(args.today || "");
       expectedCode = String(args.expected_code || "OYYERIDER").trim().toUpperCase();
       if (!isRunning) {
@@ -379,7 +379,7 @@ def setup_component_and_db():
     return conn
 
 conn = setup_component_and_db()
-timer_component = components.declare_component("timer_component_v3", path=str(COMPONENT_DIR))
+timer_component = components.declare_component("timer_component_v5", path=str(COMPONENT_DIR))
 
 # --- CUSTOM CSS ---
 st.markdown("""
@@ -407,7 +407,7 @@ st.markdown("""
         pointer-events: none !important;
     }
     
-    .brand-title { text-align: center; color: #ffffff; font-weight: 900; font-size: 2rem; margin-bottom: 5px; }
+    .brand-title { text-align: center; color: #ffffff; font-weight: 900; font-size: 2rem; margin-bottom: 5px; cursor: pointer; }
     .gold-highlight { color: #d4af37; text-shadow: 0 0 10px rgba(212,175,55,0.4); }
     
     .glass-card {
@@ -456,7 +456,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- TIMEZONE, DAILY TARGET & DAILY VIDEO CODE ---
+# --- TIMEZONE, DAILY TARGET (1 to 10s) & CODE ---
 IST = ZoneInfo('Asia/Kolkata')
 today_ist = datetime.now(IST).strftime('%Y-%m-%d')
 WIN_TOLERANCE = 0.001
@@ -467,7 +467,7 @@ def get_daily_target(date_str):
     row = c.fetchone()
     if row:
         return int(row[0])
-    new_target = random.randint(10, 20)
+    new_target = random.randint(1, 10)
     c.execute("INSERT OR IGNORE INTO targets (day, target) VALUES (?, ?)", (date_str, new_target))
     conn.commit()
     c.execute("SELECT target FROM targets WHERE day = ?", (date_str,))
@@ -492,34 +492,60 @@ secret_video_code = get_daily_secret_code(today_ist)
 min_win_time = daily_target - WIN_TOLERANCE
 max_win_time = daily_target + WIN_TOLERANCE
 
-# --- UI HEADER ---
-st.markdown("<p class='brand-title'>@oyye_rider <span class='gold-highlight'>Giveaway</span></p>", unsafe_allow_html=True)
+# --- UI HEADER WITH CLICKABLE GIVEAWAY TITLE FOR ADMIN PANEL ---
+if "show_admin" not in st.session_state:
+    st.session_state.show_admin = False
+
+# Clickable title to toggle Admin Panel
+title_clicked = st.button("🔥 @oyye_rider — 10x Giveaway 🔥", use_container_width=True)
+if title_clicked:
+    st.session_state.show_admin = not st.session_state.show_admin
+
 st.markdown("<a href='https://www.instagram.com/oyye_rider/' target='_blank' class='insta-btn'>📸 Watch Today's Reel on @oyye_rider</a>", unsafe_allow_html=True)
 
-# --- RENDER UNIFIED CODE GATE + TIMER COMPONENT ---
+# --- CREATOR ADMIN PANEL (TOGGLED BY CLICKING GIVEAWAY TITLE) ---
+if st.session_state.show_admin:
+    st.markdown('<div class="glass-card" style="border-color: #d4af37;">', unsafe_allow_html=True)
+    st.markdown("### ⚙️ Creator Admin Panel")
+    admin_pin_secret = get_secret_safe("ADMIN_PIN", "#KRISH91")
+    entered_pin = st.text_input("Admin Password", type="password", placeholder="Enter admin password...")
+    new_video_code = st.text_input("Set Today's New Video Code (e.g., RIDER77)")
+    if st.button("Update Today's Code"):
+        if entered_pin == admin_pin_secret:
+            if new_video_code.strip():
+                set_daily_secret_code(today_ist, new_video_code)
+                st.success(f"✅ Code updated to: {new_video_code.strip().upper()}")
+                st.session_state.show_admin = False
+                st.rerun()
+            else:
+                st.warning("Please enter a valid code.")
+        else:
+            st.error("❌ Invalid Admin Password!")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# --- RENDER COMPONENT ---
 comp_state = timer_component(
     target=daily_target,
     today=today_ist,
     expected_code=secret_video_code,
-    key="daily_gate_timer"
+    key="daily_gate_timer_v5"
 )
 
 status = comp_state.get("status", "LOCKED_CODE") if isinstance(comp_state, dict) else "LOCKED_CODE"
 elapsed_val = comp_state.get("elapsed") if isinstance(comp_state, dict) else None
 
-# Show Target Card only once code is unlocked or attempt completed
 if status in ("UNLOCKED", "STOPPED", "REFRESH_LOCKED"):
     st.markdown(
         f'<div class="glass-card">'
-        f'<h3 style="text-align:center; margin:0; color:#d4af37;">🎯 Today\'s Target Time</h3>'
-        f'<div class="target-box"><span class="target-time">{daily_target:.3f} SEC</span></div>'
+        f'<h3 style="text-align:center; margin:0; color:#d4af37;">🎯 Today\'s Target Time (1 - 10s)</h3>'
+        f'<div class="target-box"><span class="target-time">{daily_target}.000 SEC</span></div>'
         f'<p style="text-align:center; color:#ccc; font-size: 0.9rem; margin:0;">'
-        f'Win Rule: Stop at exact <b>{daily_target:.3f}s</b> or within <b>±0.001s</b> (<b>{min_win_time:.3f}s – {max_win_time:.3f}s</b>)!'
+        f'Winning Rule: Exact <b>{daily_target}.000s</b> par rokein aur <b>10x Winning Prize</b> jeetein!'
         f'</p></div>',
         unsafe_allow_html=True
     )
 
-# --- ENTRY SUBMISSION LOGIC ---
+# --- ENTRY & RESULT LOGIC ---
 if "entry_submitted_day" not in st.session_state or st.session_state.entry_submitted_day != today_ist:
     st.session_state.entry_submitted = False
     st.session_state.entry_submitted_day = today_ist
@@ -527,32 +553,39 @@ if "entry_submitted_day" not in st.session_state or st.session_state.entry_submi
 if status == "STOPPED" and elapsed_val is not None:
     stopped_time = round(float(elapsed_val), 3)
     difference = round(abs(stopped_time - daily_target), 3)
-    is_qualifying_hit = difference <= WIN_TOLERANCE
+    is_winner = difference <= WIN_TOLERANCE
     
-    border_col = "#4CAF50" if is_qualifying_hit else "#ff9800"
-    status_title = "🎯 WINNING ZONE HIT!" if is_qualifying_hit else "⏱️ Timer Stopped!"
-    
-    st.markdown(
-        f'<div class="glass-card" style="border-color: {border_col};">'
-        f'<h3 style="text-align:center; color:{border_col}; margin-top:0;">{status_title}</h3>'
-        f'<p style="text-align:center; font-family:monospace; font-size:1.15rem; margin-bottom:0;">'
-        f'Stopped Time: <b>{stopped_time:.3f}s</b><br>'
-        f'Target Time: <b>{daily_target:.3f}s</b><br>'
-        f'Difference: <b style="color:#ffd700;">{difference:.3f}s</b>'
-        f'</p></div>',
-        unsafe_allow_html=True
-    )
+    if is_winner:
+        st.markdown(
+            f'<div class="glass-card" style="border-color: #25D366; background: #06210e; text-align:center;">'
+            f'<h3 style="color:#4CAF50; margin-top:0;">🎉 BINGO! YOU WON 10x PRIZE!</h3>'
+            f'<p style="font-size:1.1rem; color:#fff;">आपने बिल्कुल सटीक समय पर timer रोका!</p>'
+            f'<p style="font-family:monospace; font-size:1rem; color:#ffd700;">'
+            f'Stopped: {stopped_time:.3f}s | Target: {daily_target}.000s'
+            f'</p></div>',
+            unsafe_allow_html=True
+        )
+    else:
+        st.markdown(
+            f'<div class="glass-card" style="border-color: #ff4444; text-align:center;">'
+            f'<h3 style="color:#ff4444; margin-top:0;">❌ OOPS! YOU LOST!</h3>'
+            f'<p style="font-size:1.05rem; color:#fff;">आप हार गए! आपने सही समय पर टाइमर नहीं रोका।</p>'
+            f'<p style="font-family:monospace; font-size:0.95rem; color:#ccc;">'
+            f'Your Time: {stopped_time:.3f}s | Target: {daily_target}.000s | Diff: {difference:.3f}s'
+            f'</p></div>',
+            unsafe_allow_html=True
+        )
     
     if not st.session_state.entry_submitted:
         with st.form("submission_form"):
-            st.write("लीडरबोर्ड में अपना नाम दर्ज करने के लिए Instagram Username डालें (सिर्फ 1 बार):")
+            st.write("अपना परिणाम रिकॉर्ड करने के लिए Instagram Username दर्ज करें:")
             insta_user = st.text_input("Instagram Username (with or without @)")
-            submitted = st.form_submit_button("Submit Entry")
+            submitted = st.form_submit_button("Submit Result")
             
             if submitted:
                 clean_user = insta_user.strip().lower().lstrip('@')
                 if not clean_user or not re.match(r'^[a-z0-9._]{1,30}$', clean_user):
-                    st.error("Please enter a valid Instagram username (letters, numbers, periods, underscores).")
+                    st.error("Please enter a valid Instagram username.")
                 else:
                     timestamp = datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')
                     c = conn.cursor()
@@ -564,17 +597,42 @@ if status == "STOPPED" and elapsed_val is not None:
                             )
                         st.session_state.entry_submitted = True
                         st.session_state.current_user = clean_user
-                        st.success(f"Entry confirmed for @{clean_user}!")
+                        st.success("Result saved successfully!")
                         st.rerun()
                     except sqlite3.IntegrityError:
-                        st.warning(f"@{clean_user} आज पहले ही सबमिट किया जा चुका है!")
+                        st.warning("आप आज पहले ही प्रयास कर चुके हैं!")
                         st.session_state.entry_submitted = True
                         st.session_state.current_user = clean_user
 
-# --- LEADERBOARD & WINNER LOGIC ---
-if status in ("UNLOCKED", "STOPPED", "REFRESH_LOCKED"):
-    st.markdown("### 🏆 Today's Top 50 Leaderboard")
+# --- WHATSAPP REDIRECT FOR WINNER ---
+if status == "STOPPED" and elapsed_val is not None:
+    stopped_time = round(float(elapsed_val), 3)
+    if abs(stopped_time - daily_target) <= WIN_TOLERANCE and st.session_state.get("entry_submitted"):
+        st.balloons()
+        admin_wa = get_secret_safe("ADMIN_WHATSAPP", "910000000000")
+        winner_user = st.session_state.get("current_user", "winner")
+        wa_msg = (
+            f"Hi @oyye_rider Admin! 🎉 I won the 10x Timer Giveaway!\n\n"
+            f"Instagram: @{winner_user}\n"
+            f"Stopped Time: {stopped_time:.3f}s\n"
+            f"Target: {daily_target}.000s\n"
+            f"Date: {today_ist}\n\nPlease send my 10x winning payment via UPI/Bank!"
+        )
+        wa_url = f"https://wa.me/{admin_wa}?text={urllib.parse.quote(wa_msg)}"
+        
+        st.markdown(
+            f'<div class="glass-card" style="border: 2px solid #25D366; background: #06210e; text-align:center;">'
+            f'<h3 style="color:#4CAF50; margin-top:0;">🚀 Claim Your 10x Payment Now!</h3>'
+            f'<p>WhatsApp पर Admin से बात करें और अपना भुगतान प्राप्त करें:</p>'
+            f'<a href="{wa_url}" target="_blank" style="display:inline-block; background:#25D366; color:white; padding:14px 28px; border-radius:8px; text-decoration:none; font-weight:bold; font-size:1.1rem; margin-top:8px;">'
+            f'💬 Connect with Admin on WhatsApp'
+            f'</a></div>',
+            unsafe_allow_html=True
+        )
 
+# --- LEADERBOARD ---
+if status in ("UNLOCKED", "STOPPED", "REFRESH_LOCKED"):
+    st.markdown("### 🏆 Today's Leaderboard")
     c = conn.cursor()
     c.execute("""
         SELECT instagram, elapsed, ROUND(ABS(elapsed - ?), 3) AS diff, created_at 
@@ -585,98 +643,21 @@ if status in ("UNLOCKED", "STOPPED", "REFRESH_LOCKED"):
     """, (daily_target, today_ist))
     leaderboard = c.fetchall()
 
-    if not leaderboard:
-        st.info("No entries yet for today. Stop the timer at the exact target (±0.001s) to win!")
-    else:
-        top_user, top_elapsed, top_diff, top_time = leaderboard[0]
-        has_qualifying_winner = top_diff <= WIN_TOLERANCE
-        
-        if has_qualifying_winner:
-            st.markdown(
-                f'<div class="glass-card" style="border-color: #ffd700; text-align:center;">'
-                f'<div style="color:#ffd700; font-weight:bold; font-size:1.1rem;">👑 CURRENT WINNER (±0.001s QUALIFIED)</div>'
-                f'<div style="font-size:1.5rem; font-weight:900; margin:6px 0;">@{top_user}</div>'
-                f'<div style="font-family:monospace; color:#ccc;">'
-                f'Stopped: <b>{top_elapsed:.3f}s</b> | Diff: <b style="color:#4CAF50;">{top_diff:.3f}s</b>'
-                f'</div></div>',
-                unsafe_allow_html=True
-            )
-        else:
-            st.markdown(
-                f'<div class="glass-card" style="border-color: #ff4444; text-align:center;">'
-                f'<div style="color:#ff4444; font-weight:bold; font-size:1.1rem;">⏳ NO WINNER YET TODAY</div>'
-                f'<div style="font-size:0.95rem; color:#ccc; margin:6px 0;">'
-                f'To win, stop at exact <b>{daily_target:.3f}s</b> or within <b>±0.001s</b> (<b>{min_win_time:.3f}s – {max_win_time:.3f}s</b>).'
-                f'</div>'
-                f'<div style="font-family:monospace; font-size:0.85rem; color:#999;">'
-                f'Closest so far: @{top_user} ({top_elapsed:.3f}s | Diff: {top_diff:.3f}s)'
-                f'</div></div>',
-                unsafe_allow_html=True
-            )
-
-        is_qualifying_winner = (
-            has_qualifying_winner and
-            st.session_state.get("entry_submitted") and 
-            st.session_state.get("current_user") == top_user
-        )
-
-        if is_qualifying_winner:
-            st.balloons()
-            admin_wa = get_secret_safe("ADMIN_WHATSAPP", "910000000000")
-            wa_msg = (
-                f"Hi @oyye_rider Admin! I hit the winning target in the Daily Timer Giveaway!\n\n"
-                f"Instagram: @{top_user}\n"
-                f"Stopped Time: {top_elapsed:.3f}s\n"
-                f"Daily Target: {daily_target:.3f}s\n"
-                f"Difference: {top_diff:.3f}s\n"
-                f"Date: {today_ist}"
-            )
-            wa_url = f"https://wa.me/{admin_wa}?text={urllib.parse.quote(wa_msg)}"
-            
-            st.markdown(
-                f'<div class="glass-card" style="border: 2px solid #25D366; background: #06210e; text-align:center;">'
-                f'<h3 style="color:#4CAF50; margin-top:0;">🎉 CONGRATULATIONS @{top_user}!</h3>'
-                f'<p style="font-size:0.95rem;">You hit the winning zone (<b>±0.001s</b>) and are <b>Rank #1</b>!</p>'
-                f'<p style="font-family:monospace; font-size:0.9rem;">'
-                f'Stopped: {top_elapsed:.3f}s | Target: {daily_target:.3f}s | Diff: {top_diff:.3f}s'
-                f'</p>'
-                f'<a href="{wa_url}" target="_blank" style="display:inline-block; background:#25D366; color:white; padding:12px 24px; border-radius:8px; text-decoration:none; font-weight:bold; margin-top:8px;">'
-                f'💬 Claim Prize on WhatsApp'
-                f'</a></div>',
-                unsafe_allow_html=True
-            )
-
+    if leaderboard:
         rows_list = ['<div class="glass-card" style="padding:5px 0;">']
         for idx, (insta, elapsed_item, diff_val, created_at) in enumerate(leaderboard):
             rank = idx + 1
             medal = "🥇" if rank == 1 else "🥈" if rank == 2 else "🥉" if rank == 3 else f"#{rank}"
-            rank_class = f"rank-{rank}" if rank <= 3 else ""
-            diff_color = "#4CAF50" if diff_val <= WIN_TOLERANCE else "#d4af37"
+            diff_color = "#4CAF50" if diff_val <= WIN_TOLERANCE else "#ff4444"
+            status_text = "WINNER (10x)" if diff_val <= WIN_TOLERANCE else f"Lost (Δ {diff_val:.3f}s)"
             row_str = (
                 f'<div class="leaderboard-row">'
-                f'<div class="{rank_class}" style="width:16%;">{medal}</div>'
-                f'<div style="width:42%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">@{insta}</div>'
-                f'<div style="width:21%; text-align:right; color:#aaa;">{elapsed_item:.3f}s</div>'
-                f'<div style="width:21%; text-align:right; color:{diff_color};">Δ {diff_val:.3f}s</div>'
+                f'<div style="width:15%; font-weight:bold;">{medal}</div>'
+                f'<div style="width:35%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">@{insta}</div>'
+                f'<div style="width:25%; text-align:right; color:#aaa;">{elapsed_item:.3f}s</div>'
+                f'<div style="width:25%; text-align:right; color:{diff_color}; font-size:0.85rem;">{status_text}</div>'
                 f'</div>'
             )
             rows_list.append(row_str)
         rows_list.append('</div>')
         st.markdown("".join(rows_list), unsafe_allow_html=True)
-
-# --- CREATOR ADMIN PANEL ---
-st.markdown("<br>", unsafe_allow_html=True)
-with st.expander("⚙️ Creator Admin Panel"):
-    admin_pin_secret = get_secret_safe("ADMIN_PIN", "9999")
-    entered_pin = st.text_input("Admin PIN", type="password")
-    new_video_code = st.text_input("Set Today's New Video Code (e.g., RIDER77)")
-    if st.button("Update Today's Code"):
-        if entered_pin == admin_pin_secret:
-            if new_video_code.strip():
-                set_daily_secret_code(today_ist, new_video_code)
-                st.success(f"✅ Today's Video Code updated to: {new_video_code.strip().upper()}")
-                st.rerun()
-            else:
-                st.warning("Please enter a valid code.")
-        else:
-            st.error("❌ Invalid Admin PIN!")
