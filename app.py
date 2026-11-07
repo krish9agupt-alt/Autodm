@@ -16,6 +16,15 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
+# --- SAFE SECRETS HELPER (PREVENTS "OH NO" CRASH IF SECRETS ARE NOT SET) ---
+def get_secret_safe(key, default_val):
+    try:
+        if key in st.secrets:
+            return str(st.secrets[key]).strip()
+    except Exception:
+        pass
+    return default_val
+
 # --- CREATE TIMER & CODE GATE COMPONENT (V3) ---
 COMPONENT_DIR = Path(__file__).parent / "timer_component_v3"
 INDEX_HTML = COMPONENT_DIR / "index.html"
@@ -141,7 +150,7 @@ HTML_CODE = """<!DOCTYPE html>
   <!-- VIEW 1: DAILY VIDEO CODE GATE -->
   <div id="code-gate-view" class="card hidden">
     <h3>🔒 Enter Today's Video Code</h3>
-    <p>आज के Giveaway में भाग लेने के लिए <b>@oyye_rider</b> की आज की वीडियो देखें और उसमें बताया गया कोड नीचे डालें。<br><span style="color:#ff9800; font-size:0.82rem;">(ध्यान रहे: आप एक दिन में सिर्फ 1 बार ही इस कोड और वेबसाइट का उपयोग कर सकते हैं!)</span></p>
+    <p>आज के Giveaway में भाग लेने के लिए <b>@oyye_rider</b> की आज की वीडियो देखें और उसमें बताया गया कोड नीचे डालें।<br><span style="color:#ff9800; font-size:0.82rem;">(ध्यान रहे: आप एक दिन में सिर्फ 1 बार ही इस कोड और वेबसाइट का उपयोग कर सकते हैं!)</span></p>
     <input type="text" id="secret-input" placeholder="ENTER VIDEO CODE..." autocomplete="off" />
     <div class="btn-container">
       <button id="unlock-btn" class="gold-btn">🔓 UNLOCK CHALLENGE</button>
@@ -251,7 +260,6 @@ HTML_CODE = """<!DOCTYPE html>
       const hasStarted = localStorage.getItem(`oyye_started_${today}`);
       const unlockedCode = localStorage.getItem(`oyye_unlocked_code_${today}`);
 
-      // Case 1: User already completed their 1 attempt today
       if (savedAttempt !== null) {
         const val = parseFloat(savedAttempt);
         codeGateView.classList.add("hidden");
@@ -265,7 +273,6 @@ HTML_CODE = """<!DOCTYPE html>
         return;
       }
 
-      // Case 2: User started timer and refreshed page to cheat
       if (hasStarted === "true" && !isRunning) {
         codeGateView.classList.add("hidden");
         timerView.classList.add("hidden");
@@ -279,7 +286,6 @@ HTML_CODE = """<!DOCTYPE html>
         return;
       }
 
-      // Case 3: User unlocked today's valid code and is ready to play
       if (unlockedCode === expectedCode) {
         codeGateView.classList.add("hidden");
         usedView.classList.add("hidden");
@@ -289,7 +295,6 @@ HTML_CODE = """<!DOCTYPE html>
         return;
       }
 
-      // Case 4: Show Video Code Login Gate
       timerView.classList.add("hidden");
       usedView.classList.add("hidden");
       codeGateView.classList.remove("hidden");
@@ -358,7 +363,6 @@ HTML_CODE = """<!DOCTYPE html>
 </html>
 """
 
-@st.cache_resource
 def setup_component_and_db():
     COMPONENT_DIR.mkdir(exist_ok=True)
     if not INDEX_HTML.exists() or INDEX_HTML.read_text(encoding="utf-8") != HTML_CODE:
@@ -475,7 +479,7 @@ def get_daily_secret_code(date_str):
     row = c.fetchone()
     if row and row[0]:
         return str(row[0]).strip().upper()
-    return str(st.secrets.get("DAILY_CODE", "OYYERIDER")).strip().upper()
+    return get_secret_safe("DAILY_CODE", "OYYERIDER").upper()
 
 def set_daily_secret_code(date_str, new_code):
     clean_code = new_code.strip().upper()
@@ -567,7 +571,7 @@ if status == "STOPPED" and elapsed_val is not None:
                         st.session_state.entry_submitted = True
                         st.session_state.current_user = clean_user
 
-# --- LEADERBOARD & WINNER LOGIC (SHOWN ONLY AFTER UNLOCK OR ATTEMPT) ---
+# --- LEADERBOARD & WINNER LOGIC ---
 if status in ("UNLOCKED", "STOPPED", "REFRESH_LOCKED"):
     st.markdown("### 🏆 Today's Top 50 Leaderboard")
 
@@ -618,7 +622,7 @@ if status in ("UNLOCKED", "STOPPED", "REFRESH_LOCKED"):
 
         if is_qualifying_winner:
             st.balloons()
-            admin_wa = st.secrets.get("ADMIN_WHATSAPP", "910000000000")
+            admin_wa = get_secret_safe("ADMIN_WHATSAPP", "910000000000")
             wa_msg = (
                 f"Hi @oyye_rider Admin! I hit the winning target in the Daily Timer Giveaway!\n\n"
                 f"Instagram: @{top_user}\n"
@@ -642,7 +646,6 @@ if status in ("UNLOCKED", "STOPPED", "REFRESH_LOCKED"):
                 unsafe_allow_html=True
             )
 
-        # Render Top 50 Table
         rows_list = ['<div class="glass-card" style="padding:5px 0;">']
         for idx, (insta, elapsed_item, diff_val, created_at) in enumerate(leaderboard):
             rank = idx + 1
@@ -664,7 +667,7 @@ if status in ("UNLOCKED", "STOPPED", "REFRESH_LOCKED"):
 # --- CREATOR ADMIN PANEL ---
 st.markdown("<br>", unsafe_allow_html=True)
 with st.expander("⚙️ Creator Admin Panel"):
-    admin_pin_secret = str(st.secrets.get("ADMIN_PIN", "9999"))
+    admin_pin_secret = get_secret_safe("ADMIN_PIN", "9999")
     entered_pin = st.text_input("Admin PIN", type="password")
     new_video_code = st.text_input("Set Today's New Video Code (e.g., RIDER77)")
     if st.button("Update Today's Code"):
