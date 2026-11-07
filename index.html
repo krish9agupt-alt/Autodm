@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Oyye Rider | Daily Timer Challenge</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #050505;
+    }
+    .iframe-wrapper {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #050505;
+    }
+    iframe {
+      width: 100%;
+      /* Niche ki 'Built with Streamlit' bar ko screen ke bahar push kar deta hai */
+      height: calc(100% + 45px);
+      border: none;
+      display: block;
+    }
+    /* Extra safety black strip at the very bottom */
+    .bottom-mask {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      height: 28px;
+      background: #050505;
+      z-index: 9999;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="iframe-wrapper">
+    <iframe 
+      src="https://givway.streamlit.app/?embed=true&embed_options=disable_fullscreen&embed_options=dark_theme" 
+      allow="autoplay; clipboard-write">
+    </iframe>
+  </div>
+  <div class="bottom-mask"></div>
+</body>
+</html>
