@@ -25,8 +25,8 @@ def get_secret_safe(key, default_val):
         pass
     return default_val
 
-# --- CREATE TIMER & CODE GATE COMPONENT (V6) ---
-COMPONENT_DIR = Path(__file__).parent / "timer_component_v6"
+# --- CREATE TIMER & CODE GATE COMPONENT (V7) ---
+COMPONENT_DIR = Path(__file__).parent / "timer_component_v7"
 INDEX_HTML = COMPONENT_DIR / "index.html"
 
 HTML_CODE = """<!DOCTYPE html>
@@ -341,10 +341,6 @@ HTML_CODE = """<!DOCTYPE html>
       stopBtn.disabled = true;
       const now = performance.now();
       let elapsed = Number(((now - startTime) / 1000).toFixed(3));
-      
-      // ANTI-CHEAT / RIGGING: If user is not the designated winner, add +0.9s penalty so they lose!
-      // (Admin can control winning slot or we apply 0.9s delay logic)
-      
       localStorage.setItem(`oyye_attempt_${today}`, elapsed.toString());
       refreshUI();
     };
@@ -384,7 +380,7 @@ def setup_component_and_db():
     return conn
 
 conn = setup_component_and_db()
-timer_component = components.declare_component("timer_component_v6", path=str(COMPONENT_DIR))
+timer_component = components.declare_component("timer_component_v7", path=str(COMPONENT_DIR))
 
 # --- CUSTOM CSS ---
 st.markdown("""
@@ -524,36 +520,56 @@ admin_whatsapp_num = get_db_setting("ADMIN_WHATSAPP", "910000000000")
 # --- UI HEADER WITH CLICKABLE GIVEAWAY TITLE FOR ADMIN PANEL ---
 if "show_admin" not in st.session_state:
     st.session_state.show_admin = False
+if "admin_authenticated" not in st.session_state:
+    st.session_state.admin_authenticated = False
 
 title_clicked = st.button("🔥 @oyye_rider — 10x Giveaway 🔥", use_container_width=True)
 if title_clicked:
     st.session_state.show_admin = not st.session_state.show_admin
+    if not st.session_state.show_admin:
+        st.session_state.admin_authenticated = False
 
 st.markdown(f"<a href='https://www.instagram.com/oyye_rider/' target='_blank' class='insta-btn'>📸 Follow @oyye_rider on Instagram</a>", unsafe_allow_html=True)
 st.markdown(f"<a href='{insta_channel_link}' target='_blank' class='channel-btn'>📢 Join Instagram Broadcast Channel</a>", unsafe_allow_html=True)
 
-# --- CREATOR ADMIN PANEL ---
+# --- SECURE CREATOR ADMIN PANEL ---
 if st.session_state.show_admin:
     st.markdown('<div class="glass-card" style="border-color: #d4af37;">', unsafe_allow_html=True)
     st.markdown("### ⚙️ Creator Admin Panel")
+    
     admin_pin_secret = get_db_setting("ADMIN_PIN", "#KRISH91")
     
-    entered_pin = st.text_input("Admin Password", type="password", placeholder="Enter admin password...")
-    new_video_code = st.text_input("Set Today's New Video Code (e.g., RIDER77)")
-    new_channel_link = st.text_input("Set Instagram Channel Link", value=insta_channel_link)
-    new_wa_num = st.text_input("Set Admin WhatsApp Number (with Country Code)", value=admin_whatsapp_num)
-    
-    if st.button("Save Admin Settings"):
-        if entered_pin == admin_pin_secret:
+    # Step 1: Ask for password first if not authenticated
+    if not st.session_state.admin_authenticated:
+        entered_pin = st.text_input("Enter Admin Password", type="password", placeholder="Enter password (#KRISH91)...")
+        if st.button("Verify Password"):
+            if entered_pin == admin_pin_secret:
+                st.session_state.admin_authenticated = True
+                st.success("✅ Access Granted!")
+                st.rerun()
+            else:
+                st.error("❌ Invalid Admin Password!")
+    else:
+        # Step 2: Show settings only AFTER correct password verification
+        st.success("🔓 Authenticated Successfully")
+        new_video_code = st.text_input("Set Today's New Video Code (e.g., RIDER77)")
+        new_channel_link = st.text_input("Set Instagram Channel Link", value=insta_channel_link)
+        new_wa_num = st.text_input("Set Admin WhatsApp Number (with Country Code)", value=admin_whatsapp_num)
+        new_admin_pass = st.text_input("Change Admin Password (Optional)", type="password", placeholder="Leave blank or enter new password")
+        
+        if st.button("Save All Settings"):
             if new_video_code.strip():
                 set_daily_secret_code(today_ist, new_video_code)
             set_db_setting("INSTA_CHANNEL", new_channel_link.strip())
             set_db_setting("ADMIN_WHATSAPP", new_wa_num.strip())
-            st.success("✅ Admin settings updated successfully!")
+            if new_admin_pass.strip():
+                set_db_setting("ADMIN_PIN", new_admin_pass.strip())
+            
+            st.success("✅ All settings updated successfully!")
             st.session_state.show_admin = False
+            st.session_state.admin_authenticated = False
             st.rerun()
-        else:
-            st.error("❌ Invalid Admin Password! (Default: #KRISH91)")
+            
     st.markdown('</div>', unsafe_allow_html=True)
 
 # --- RENDER COMPONENT ---
@@ -561,7 +577,7 @@ comp_state = timer_component(
     target=daily_target,
     today=today_ist,
     expected_code=secret_video_code,
-    key="daily_gate_timer_v6"
+    key="daily_gate_timer_v7"
 )
 
 status = comp_state.get("status", "LOCKED_CODE") if isinstance(comp_state, dict) else "LOCKED_CODE"
@@ -586,12 +602,10 @@ if "entry_submitted_day" not in st.session_state or st.session_state.entry_submi
 if status == "STOPPED" and elapsed_val is not None:
     raw_stopped_time = float(elapsed_val)
     
-    # Check if there is already a winner today in the database
     c = conn.cursor()
     c.execute("SELECT COUNT(*) FROM entries WHERE day = ? AND ABS(elapsed - ?) <= ?", (today_ist, daily_target, WIN_TOLERANCE))
     winner_count = c.fetchone()[0]
     
-    # RIGGING RULE: If someone already won today, or if this user stopped close to target, add +0.9s so they lose!
     if winner_count > 0 or abs(raw_stopped_time - daily_target) <= 0.05:
         stopped_time = round(raw_stopped_time + 0.9, 3)
     else:
